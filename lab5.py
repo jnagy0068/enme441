@@ -17,9 +17,7 @@ for x in pins:
 GPIO.setup(button_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
 def toggle_direction(channel):
-    global direction
     direction *= -1
-    print(f"Direction changed to {'forward' if direction == 1 else 'reverse'}")
 
 GPIO.add_event_detect(button_pin, GPIO.RISING, callback=toggle_direction, bouncetime=300)
 
