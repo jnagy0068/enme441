@@ -11,7 +11,7 @@ for x in pins:
 
 try:
   while True:
-    pwm.start((sin(2 * math.pi * f * time.time()))^2)            # initiate PWM object
+    pwm.start((sin(2 * math.pi * f * time.time()))**2)            # initiate PWM object
     pass
 except KeyboardInterrupt:   # stop gracefully on ctrl-C
   print('\nExiting')
