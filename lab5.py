@@ -16,9 +16,9 @@ try:
   while True:
     time = time.time()
     for y in pins:
-      j = 0
+      i = 0
       pwm[y].ChangeDutyCycle(((math.sin(2 * math.pi * f * time - i*math.pi/9))**2)*100) 
-      j += 1
+      i += 1
     pass
 except KeyboardInterrupt:  
   print('\nExiting')
