@@ -8,6 +8,7 @@ button_pin = 4
 pwm = {}
 f = 500  
 direction = 1       # 1 for forward, -1 for reverse
+phase_step = math.pi / 9
 
 for x in pins:
   GPIO.setup(x, GPIO.OUT)
