@@ -5,7 +5,7 @@ GPIO.setmode(GPIO.BCM)
 
 pins = [5, 6, 12, 13, 16, 19, 20, 21, 25, 26]    # GPIO pin number
 pwm = {}
-f = 500     # frequency (Hz)
+f = 1     # frequency (Hz)
 
 for x in pins:
   GPIO.setup(x, GPIO.OUT)
