@@ -7,9 +7,7 @@ pins = [5, 6, 12, 13, 16, 19, 20, 21, 25, 26]
 button_pin = 4
 pwm = {}
 f = 500  
-direction = 1       # 1 for forward, -1 for reverse
-phase_step = math.pi / 9
-f_wave = 0.2
+direction = 1 
 
 for x in pins:
   GPIO.setup(x, GPIO.OUT)
@@ -18,7 +16,6 @@ for x in pins:
 
 GPIO.setup(button_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
-# --- Callback for button press ---
 def toggle_direction(channel):
     global direction
     direction *= -1
@@ -30,8 +27,7 @@ try:
   while True:
     t = time.time()
     for i, y in enumerate(pins):
-      phi = direction * i * phase_step
-      brightness = (math.sin(2 * math.pi * f_wave * t - phi))**2 * 100
+      brightness = (math.sin(2 * math.pi * 0.2 * t - direction * i * math.pi / 9))**2 * 100
       pwm[y].ChangeDutyCycle(brightness)
     pass
 except KeyboardInterrupt:  
