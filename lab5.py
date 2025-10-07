@@ -15,7 +15,7 @@ for x in pins:
 try:
   while True:
     time = time.time()
-    for z in pins:
+    for y in pins:
       j = 0
       pwm[y].ChangeDutyCycle(((math.sin(2 * math.pi * f * time - i*math.pi/9))**2)*100) 
       j += 1
