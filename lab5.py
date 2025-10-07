@@ -16,8 +16,9 @@ for x in pins:
 
 GPIO.setup(button_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
-def toggle_direction(direction):
-    direction *= -1
+def toggle_direction(button_pin):
+  global direction
+  direction *= -1
 
 GPIO.add_event_detect(button_pin, GPIO.RISING, callback=toggle_direction, bouncetime=300)
 
