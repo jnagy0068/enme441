@@ -12,11 +12,15 @@ for x in pins:
   pwm[x] = GPIO.PWM(x, f)        # create PWM object
 
 try:
+  for y in pins:
+    i = 0
+    pwm[y].start(((math.sin(2 * math.pi * f * time.time() - i*math.pi/9))**2)*100) 
+    i += 1
   while True:
-    for y in pins:
-      i = 0
-      pwm[y].start(((math.sin(2 * math.pi * f * time.time() - i*math.pi/9))**2)*100) 
-      i += 1
+    for z in pins:
+      j = 0
+      pwm[y].ChangeDutyCycle(((math.sin(2 * math.pi * f * time.time() - i*math.pi/9))**2)*100) 
+      j += 1
     pass
 except KeyboardInterrupt:   # stop gracefully on ctrl-C
   print('\nExiting')
