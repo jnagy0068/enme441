@@ -15,10 +15,10 @@ for x in pins:
 try:
   while True:
     t = time.time()
-    for y in pins:
-      i = 0
-      pwm[y].ChangeDutyCycle(((math.sin(2 * math.pi * f * t - i*math.pi/9))**2)*100) 
-      i += 1
+    for i, y in enumerate(pins):
+      phi = direction * i * phase_step
+      brightness = (math.sin(2 * math.pi * f_wave * t - phi))**2 * 100
+      pwm[y].ChangeDutyCycle(brightness)
     pass
 except KeyboardInterrupt:  
   print('\nExiting')
