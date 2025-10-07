@@ -16,13 +16,13 @@ try:
     i = 0
     pwm[y].start(((math.sin(2 * math.pi * f * time.time() - i*math.pi/9))**2)*100) 
     i += 1
-    time.sleep(0.01)
+    time.sleep(0.001)
   while True:
     for z in pins:
       j = 0
       pwm[y].ChangeDutyCycle(((math.sin(2 * math.pi * f * time.time() - i*math.pi/9))**2)*100) 
       j += 1
-      time.sleep(0.01)
+      time.sleep(0.001)
     pass
 except KeyboardInterrupt:   # stop gracefully on ctrl-C
   print('\nExiting')
