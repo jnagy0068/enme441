@@ -1,28 +1,27 @@
-import time
-import random
 import RPi.GPIO as GPIO
-from shifter import Shifter
+import time
 
-dataPin, latchPin, clockPin = 23, 24, 25
-led_shifter = Shifter(dataPin, clockPin, latchPin)
+GPIO.setmode(GPIO.BCM)
 
-position = 3 
-dt = 0.05
+class Shifter:
+    def __init__(self, dataPin, latchPin, clockPin):
+        self.dataPin = dataPin
+        self.latchPin = latchPin
+        self.clockPin = clockPin
 
-try:
-    while True:
-        pattern = 1 << position
-        led_shifter.shiftByte(pattern)
+        # Set up GPIO pins
+        GPIO.setup(self.dataPin, GPIO.OUT)
+        GPIO.setup(self.latchPin, GPIO.OUT, initial=0)
+        GPIO.setup(self.clockPin, GPIO.OUT, initial=0)
 
-        step = random.choice([-1, 1])
-        position += step
+    def _ping(self, pin):
+        GPIO.output(pin, 1)
+        time.sleep(0.00001)
+        GPIO.output(pin, 0)
+        time.sleep(0.00001)
 
-        if position < 0:
-            position = 0
-        elif position > 7:
-            position = 7
-
-        time.sleep(dt)
-
-except KeyboardInterrupt:
-    GPIO.cleanup()
+    def shiftByte(self, pattern):
+        for i in range(8):
+            GPIO.output(self.dataPin, (pattern >> i) & 1)
+            self._ping(self.clockPin)
+        self._ping(self.latchPin)
