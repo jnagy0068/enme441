@@ -2,24 +2,27 @@ import RPi.GPIO as GPIO
 import time
 
 GPIO.setmode(GPIO.BCM)
+class Shifter:
+    def __init__(self, serialPin, clockPin, latchPin):
+        self.serialPin = serialPin
+        self.clockPin = clockPin
+        self.latchPin = latchPin
 
-dataPin, latchPin, clockPin = 23, 24, 25
+        GPIO.setup(self.serialPin, GPIO.OUT)
+        GPIO.setup(self.clockPin, GPIO.OUT, initial=0)
+        GPIO.setup(self.latchPin, GPIO.OUT, initial=0)
 
-GPIO.setup(dataPin, GPIO.OUT)
-GPIO.setup(latchPin, GPIO.OUT, initial=0)  # start latch & clock low
-GPIO.setup(clockPin, GPIO.OUT, initial=0)  
+    def _ping(self, pin):
+        GPIO.output(pin, 1)
+        time.sleep(0)
+        GPIO.output(pin, 0)
 
-pattern = 0b01100110        # 8-bit pattern to display on LED bar
-
-for i in range(8):
-  GPIO.output(dataPin, pattern & (1<<i))
-  GPIO.output(clockPin,1) 	    # ping the clock pin to shift register data
-  time.sleep(0)
-  GPIO.output(clockPin,0)
-
-GPIO.output(latchPin, 1)        # ping the latch pin to send register to output
-time.sleep(0)
-GPIO.output(latchPin, 0)
+    def shiftByte(self, pattern):
+        for i in range(8):
+            GPIO.output(self.serialPin, pattern & (1 << i))
+            self._ping(self.clockPin)
+        
+        self._ping(self.latchPin)
 
 try:
   while 1: pass
