@@ -23,5 +23,5 @@ GPIO.output(latchPin, 0)
 
 try:
   while 1: pass
-except:
+except KeyboardInterrupt:
   GPIO.cleanup()
