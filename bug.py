@@ -26,5 +26,3 @@ try:
 
 except KeyboardInterrupt:
     GPIO.cleanup()
-    print("\nRandom walk stopped and GPIO cleaned up.")
-
