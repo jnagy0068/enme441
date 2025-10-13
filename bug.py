@@ -7,10 +7,10 @@ dataPin = 23
 latchPin = 24
 clockPin = 25
 
-leds = Shifter(dataPin, latchPin, clockPin)
-
 position = 3  # start roughly in the middle
-dt = 0.05  # 50 ms between updates
+timeStep = 0.05  # 50 ms between updates
+
+leds = Shifter(dataPin, latchPin, clockPin)
 
 try:
     while True:
@@ -24,9 +24,7 @@ try:
             position = 0
         elif position > 7:
             position = 7
-
-        time.sleep(dt)
+        time.sleep(timeStep)
 
 except KeyboardInterrupt:
     GPIO.cleanup()
-    print("\nProgram stopped and GPIO cleaned up.")
