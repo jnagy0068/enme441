@@ -39,7 +39,7 @@ dataPin = 23
 latchPin = 24
 clockPin = 25
 
-# Input switches
+# Input buttons
 s1 = 17  # Start/Stop
 s2 = 27  # Toggle wrap
 s3 = 22  # Speed boost
@@ -51,25 +51,24 @@ GPIO.setup(s3, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
 bug = Bug()
 
-last_s2_state = GPIO.input(s2)
+def button_start_stop(channel):
+    if bug._running:
+        bug.stop()
+        print("Bug stopped.")
+    else:
+        bug.start()
+        print("Bug started.")
+def button_toggle_wrap(channel):
+    bug.toggle_wrap()
+def button_toggle_speed(channel):
+    bug.toggle_speed()
+
+GPIO.add_event_detect(s1, GPIO.RISING, callback=button_start_stop, bouncetime=300)
+GPIO.add_event_detect(s2, GPIO.RISING, callback=button_toggle_wrap, bouncetime=300)
+GPIO.add_event_detect(s3, GPIO.RISING, callback=button_toggle_speed, bouncetime=300)
 
 try:
     while True:
-        if GPIO.input(s1):
-            if not bug._running:
-                bug.start()
-        else:
-            if bug._running:
-                bug.stop()
-        current_s2_state = GPIO.input(s2)
-        if current_s2_state != last_s2_state and current_s2_state == 1:
-            bug.isWrapOn = not bug.isWrapOn
-            print(f"Wrap mode toggled: {bug.isWrapOn}")
-        last_s2_state = current_s2_state
-        if GPIO.input(s3):
-            bug.timestep = 0.1 / 3
-        else:
-            bug.timestep = 0.1
         bug.step()
 
 except KeyboardInterrupt:
