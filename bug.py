@@ -17,18 +17,6 @@ class Bug:
     def stop(self):
         self._running = False
         self.__shifter.shiftByte(0b00000000)
-
-    def toggle_wrap(self):
-        self.isWrapOn = not self.isWrapOn
-        print(f"Wrap mode: {self.isWrapOn}")
-
-    def toggle_speed(self):
-        self._speedBoost = not self._speedBoost
-        if self._speedBoost:
-            self.timestep /= 3
-        else:
-            self.timestep *= 3
-        print(f"Speed boost: {self._speedBoost}, timestep: {self.timestep:.3f}")
     
     def step(self):
         if not self._running:
@@ -51,38 +39,35 @@ dataPin = 23
 latchPin = 24
 clockPin = 25
 
-# Input buttons
 s1 = 17  # Start/Stop
 s2 = 27  # Toggle wrap
 s3 = 22  # Speed boost
 
-GPIO.setmode(GPIO.BCM)
-GPIO.setup(s1, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-GPIO.setup(s2, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-GPIO.setup(s3, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+for pin in [s1, s2, s3]:
+    GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
 bug = Bug()
+last_s2_state = GPIO.input(s2)
 
-def button_start_stop(channel):
-    if bug._running:
-        bug.stop()
-        print("Bug stopped.")
-    else:
-        bug.start()
-        print("Bug started.")
-def button_toggle_wrap(channel):
-    bug.toggle_wrap()
-def button_toggle_speed(channel):
-    bug.toggle_speed()
+def toggle_wrap(channel):
+    bug.isWrapOn = not bug.isWrapOn
+    print(f"Wrap mode toggled: {bug.isWrapOn}")
 
-GPIO.add_event_detect(s1, GPIO.RISING, callback=button_start_stop, bouncetime=300)
-GPIO.add_event_detect(s2, GPIO.RISING, callback=button_toggle_wrap, bouncetime=300)
-GPIO.add_event_detect(s3, GPIO.RISING, callback=button_toggle_speed, bouncetime=300)
+GPIO.add_event_detect(s2, GPIO.RISING, callback=toggle_wrap, bouncetime=300)
 
 try:
     while True:
-        bug.step()
-
+        if GPIO.input(s1):
+            if not bug._running:
+                bug.start()
+        else:
+            if bug._running:
+                bug.stop()
+        if GPIO.input(s3):
+            current_step = bug.timestep / 3
+        else:
+            current_step = bug.timestep
+        bug.step(current_step)
 except KeyboardInterrupt:
     bug.stop()
     GPIO.cleanup()
