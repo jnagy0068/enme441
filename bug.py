@@ -18,13 +18,18 @@ class Bug:
         self._running = False
         self.__shifter.shiftByte(0b00000000)
     
-    def step(self):
+    def step(self, timestep):
         if not self._running:
             return
+
+        # Display current LED position
         pattern = 1 << self.x
         self.__shifter.shiftByte(pattern)
-        step = random.choice([-1, 1])
-        self.x += step
+
+        # Random movement step
+        self.x += random.choice([-1, 1])
+
+        # Wrap or clamp at edges
         if self.isWrapOn:
             self.x %= 8
         else:
@@ -33,7 +38,7 @@ class Bug:
             elif self.x > 7:
                 self.x = 7
 
-        time.sleep(self.timestep)
+        time.sleep(timestep)
 
 dataPin = 23
 latchPin = 24
