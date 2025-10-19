@@ -18,6 +18,18 @@ class Bug:
         self._running = False
         self.__shifter.shiftByte(0b00000000)
 
+    def toggle_wrap(self):
+        self.isWrapOn = not self.isWrapOn
+        print(f"Wrap mode: {self.isWrapOn}")
+
+    def toggle_speed(self):
+        self._speedBoost = not self._speedBoost
+        if self._speedBoost:
+            self.timestep /= 3
+        else:
+            self.timestep *= 3
+        print(f"Speed boost: {self._speedBoost}, timestep: {self.timestep:.3f}")
+    
     def step(self):
         if not self._running:
             return
