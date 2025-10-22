@@ -1,6 +1,7 @@
 # Helper function to extract key,value pairs of POST data 
 
 def parsePOSTdata(data):
+    data = data.decode('utf-8')
     data_dict = {}
     idx = data.find('\r\n\r\n')+4
     data = data[idx:]
