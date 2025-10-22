@@ -1,35 +1,22 @@
-# webserver.py
-#
-# Web server via sockets.
-#
-# When contacted by a client (web browser), send a web page
-# displaying the states of selected GPIO pins.
-#
-# Must run as sudo to access port 80.  
-#
-# Port 8080 is a non-privileged alternative to port 80 that can
-# be used to avoid the need for sudo, if desired.
-
 import socket
 import RPi.GPIO as GPIO
 import time
 
-GPIO.setmode(GPIO.BCM)
-
-pins = (19,21,22,23,25,26,32,33)
-for p in pins: GPIO.setup(p, GPIO.IN) 
-
 # Generate HTML for the web page:
 def web_page():
-    rows = [f'<tr><td>{p}</td><td>{GPIO.input(p)}</td></tr>' for p in pins]
     html = """
         <html>
-        <head> <title>GPIO Pins</title> </head>
-        <body> <h1>Pin States</h1>
-        <table border="1"> <tr><th>Pin</th><th>Value</th></tr>
-        """ + '\n'.join(rows) + """
-        </table>
-        </body>
+        <form action="/cgi-bin/range.py" method="POST">
+            Brightness Level:<br>
+            <input type="range" name="brightness" min ="0" max="100" value ="0"/> <br>
+            <br>
+            Select LED:<br>
+            <input type="radio" name="led1" value="led1"> LED 1 <br>
+            <input type="radio" name="led2" value="led2"> LED 2 <br>
+            <input type="radio" name="led3" value="led3"> LED 3 <br>
+            <br>
+            <input type="submit" value="Change Brightness">
+        </form>
         </html>
         """
     print(html)
