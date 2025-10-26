@@ -2,7 +2,27 @@ import socket
 import RPi.GPIO as GPIO
 import time
 
-# Generate HTML for the web page:
+led_pins = [23, 24, 25]  
+f = 1000           
+brightness = [0, 0, 0]    
+pwms = []
+
+GPIO.setmode(GPIO.BCM)
+for pin in led_pins:
+    GPIO.setup(pin, GPIO.OUT)
+    pwm = GPIO.PWM(pin, f)
+    pwm.start(0)
+    pwms.append(pwm)
+
+def change_brightness(index, value):
+    value = int(value)
+    if value < 0:
+        value = 0
+    if value > 100:
+        value = 100
+    brightness[index] = value
+    pwms[index].ChangeDutyCycle(value)
+
 def web_page():
     html = """
         <html>
