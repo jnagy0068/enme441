@@ -1,8 +1,9 @@
 import socket
+import threading
 import RPi.GPIO as GPIO
 import time
 
-led_pins = [23, 24, 25]  
+led_pins = [17, 27, 22]  
 f = 1000           
 brightness = [0, 0, 0]    
 pwms = []
@@ -52,26 +53,41 @@ def web_page():
         </html>
         """
     print(html)
-    return (bytes(html,'utf-8'))   # convert string to UTF-8 bytes object
+    return (bytes(html,'utf-8'))
      
-# Serve the web page to a client on connection:
 def serve_web_page():
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # TCP-IP socket
-    s.bind(('', 80))
-    s.listen(1)  # up to 3 queued connections
     while True:
-        time.sleep(0.1)
-        print('Waiting for connection...')
-        conn, (client_ip, client_port) = s.accept()     # blocking call
-        request = conn.recv(1024)                 # read request (required even if none)
-        print(f'Connection from {client_ip}')   
-        conn.send(b'HTTP/1.1 200 OK\r\n')         # status line 
-        conn.send(b'Content-type: text/html\r\n') # header (content type)
-        conn.send(b'Connection: close\r\n\r\n')   # header (tell client to close)
-        # send body in try block in case connection is interrupted:
-        try:
-            conn.sendall(web_page())                    # body
-        finally:
-            conn.close()
+        print("Waiting for connection...")
+        conn, (client_ip, client_port) = s.accept()
+        print(f"Connection from {client_ip}:{client_port}")
+        client_message = conn.recv(2048).decode('utf-8')
+        print(f"Message from client:\n{client_message}")
 
-serve_web_page()
+        data_dict = parsePOSTdata(client_message)
+        if 'led' in data_dict and 'brightness' in data_dict:
+            led = int(data_dict['led'])
+            value = int(data_dict['brightness'])
+            change_brightness(led, value)
+
+            conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n')
+            conn.sendall(web_page(led, value))
+        else:
+            conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n')
+            conn.sendall(web_page())
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.bind(('', 80))
+s.listen(3)
+
+webpageThread = threading.Thread(target=serve_web_page, daemon=True)
+webpageThread.start()
+
+try:
+    while True:
+        sleep(1)
+except KeyboardInterrupt:
+    print('\nExiting')
+    for pwm in pwms: 
+        pwm.stop()
+    GPIO.cleanup()
+    s.close()
