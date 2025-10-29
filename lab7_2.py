@@ -1,14 +1,13 @@
-# 1, referencing from "web_gpio_post.py" ddevoe-umd git
+import socket
+import threading
 import RPi.GPIO as GPIO
-import threading, socket
-from time import sleep
+import time
 
 led_pins = [23, 24, 25]  
 f = 1000           
 brightness = [0, 0, 0]    
 pwms = []
 
-# referencing lab5
 GPIO.setmode(GPIO.BCM)
 for pin in led_pins:
     GPIO.setup(pin, GPIO.OUT)
@@ -16,7 +15,7 @@ for pin in led_pins:
     pwm.start(0)
     pwms.append(pwm)
 
-def change_brightness(index, value): # min and max 0-100%
+def change_brightness(index, value):
     value = int(value)
     if value < 0:
         value = 0
@@ -24,12 +23,11 @@ def change_brightness(index, value): # min and max 0-100%
         value = 100
     brightness[index] = value
     pwms[index].ChangeDutyCycle(value)
-
-# module 7, pg 20. helper function
+    
 def parsePOSTdata(data):
-    # "Helper function to extract key,value pairs of POST data"
+    data = data.decode('utf-8')
     data_dict = {}
-    idx = data.find('\r\n\r\n') + 4
+    idx = data.find('\r\n\r\n')+4
     data = data[idx:]
     data_pairs = data.split('&')
     for pair in data_pairs:
@@ -38,8 +36,6 @@ def parsePOSTdata(data):
             data_dict[key_val[0]] = key_val[1]
     return data_dict
 
-# leveraged chatgpt for general format and made adjustments by using w3schools to test and run
-# had issues where LED and slider value kept resetting after page loads, so chat provided guidance by saying to use parameters
 def web_page(selected_led=0, current_val=0):
     return bytes(f"""
     <html>
@@ -119,8 +115,10 @@ def web_page(selected_led=0, current_val=0):
         </script>
     </body>
     </html>
-    """
-
+        """
+    print(html)
+    return (bytes(html,'utf-8'))
+    
 def serve_web_page():
     while True:
         print("Waiting for connection...")
