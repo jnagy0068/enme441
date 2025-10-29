@@ -4,7 +4,7 @@ import RPi.GPIO as GPIO
 import time
 
 # --- LED SETUP ---
-led_pins = [23, 24, 25]
+led_pins = [17, 27, 22]
 f = 1000  # PWM frequency
 brightness = [0, 0, 0]
 pwms = []
