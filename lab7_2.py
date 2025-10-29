@@ -3,9 +3,8 @@ import threading
 import RPi.GPIO as GPIO
 import time
 
-# --- LED SETUP ---
 led_pins = [17, 27, 22]
-f = 1000  # PWM frequency
+f = 1000
 brightness = [0, 0, 0]
 pwms = []
 
@@ -16,17 +15,12 @@ for pin in led_pins:
     pwm.start(0)
     pwms.append(pwm)
 
-
-# --- FUNCTIONS ---
 def change_brightness(index, value):
-    """Clamp brightness 0–100 and update PWM duty cycle."""
     value = max(0, min(100, int(value)))
     brightness[index] = value
     pwms[index].ChangeDutyCycle(value)
 
-
 def parsePOSTdata(data):
-    """Extract POST data (led index and brightness) from HTTP request."""
     if isinstance(data, bytes):
         data = data.decode("utf-8")
     data_dict = {}
@@ -42,7 +36,6 @@ def parsePOSTdata(data):
 
 
 def web_page():
-    """Return HTML page for LED control sliders."""
     html = f"""
     <html>
     <head>
@@ -122,8 +115,6 @@ def web_page():
     """
     return bytes(html, "utf-8")
 
-
-# --- WEB SERVER ---
 def serve_web_page():
     while True:
         print("Waiting for connection...")
@@ -143,11 +134,9 @@ def serve_web_page():
         conn.sendall(web_page())
         conn.close()
 
-
-# --- MAIN PROGRAM ---
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-s.bind(("", 8080))  # Port 8080 to avoid needing sudo
+s.bind(("", 8080))
 s.listen(3)
 print("Server running. Connect via http://<Pi_IP>:8080")
 
