@@ -148,7 +148,7 @@ webpageThread.start()
 
 try:
     while True:
-        sleep(1)
+        time.sleep(1)
 except KeyboardInterrupt:
     print('\nExiting')
     for pwm in pwms: 
