@@ -83,7 +83,6 @@ def serve_web_page():
         conn.sendall(response)
         conn.close()
 
-# --- Server setup ---
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.bind(('', 8080))   # use 80 if running with sudo
 s.listen(3)
