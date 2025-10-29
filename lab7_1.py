@@ -84,7 +84,7 @@ def serve_web_page():
         conn.close()
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.bind(('', 8080))   # use 80 if running with sudo
+s.bind(('', 8080))
 s.listen(3)
 
 webpageThread = threading.Thread(target=serve_web_page, daemon=True)
