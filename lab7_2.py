@@ -1,58 +1,162 @@
-# webserver.py
-#
-# Web server via sockets.
-#
-# When contacted by a client (web browser), send a web page
-# displaying the states of selected GPIO pins.
-#
-# Must run as sudo to access port 80.  
-#
-# Port 8080 is a non-privileged alternative to port 80 that can
-# be used to avoid the need for sudo, if desired.
-
-import socket
+# 1, referencing from "web_gpio_post.py" ddevoe-umd git
 import RPi.GPIO as GPIO
-import time
+import threading, socket
+from time import sleep
 
+led_pins = [23, 24, 25]  
+f = 1000           
+brightness = [0, 0, 0]    
+pwms = []
+
+# referencing lab5
 GPIO.setmode(GPIO.BCM)
+for pin in led_pins:
+    GPIO.setup(pin, GPIO.OUT)
+    pwm = GPIO.PWM(pin, f)
+    pwm.start(0)
+    pwms.append(pwm)
 
-pins = (19,21,22,23,25,26,32,33)
-for p in pins: GPIO.setup(p, GPIO.IN) 
+def change_brightness(index, value): # min and max 0-100%
+    value = int(value)
+    if value < 0:
+        value = 0
+    if value > 100:
+        value = 100
+    brightness[index] = value
+    pwms[index].ChangeDutyCycle(value)
 
-# Generate HTML for the web page:
-def web_page():
-    rows = [f'<tr><td>{p}</td><td>{GPIO.input(p)}</td></tr>' for p in pins]
-    html = """
-        <html>
-        <head> <title>GPIO Pins</title> </head>
-        <body> <h1>Pin States</h1>
-        <table border="1"> <tr><th>Pin</th><th>Value</th></tr>
-        """ + '\n'.join(rows) + """
-        </table>
-        </body>
-        </html>
-        """
-    print(html)
-    return (bytes(html,'utf-8'))   # convert string to UTF-8 bytes object
-     
-# Serve the web page to a client on connection:
+# module 7, pg 20. helper function
+def parsePOSTdata(data):
+    # "Helper function to extract key,value pairs of POST data"
+    data_dict = {}
+    idx = data.find('\r\n\r\n') + 4
+    data = data[idx:]
+    data_pairs = data.split('&')
+    for pair in data_pairs:
+        key_val = pair.split('=')
+        if len(key_val) == 2:
+            data_dict[key_val[0]] = key_val[1]
+    return data_dict
+
+# leveraged chatgpt for general format and made adjustments by using w3schools to test and run
+# had issues where LED and slider value kept resetting after page loads, so chat provided guidance by saying to use parameters
+def web_page(selected_led=0, current_val=0):
+    return bytes(f"""
+    <html>
+    <head>
+        <style>
+            body {{
+                font-family: Arial, sans-serif;
+                text-align: center;
+                margin-top: 40px;
+                background-color: #fafafa;
+            }}
+            .box {{
+                border: 3px solid #555;
+                border-radius: 12px;
+                width: 420px;
+                margin: 0 auto;
+                padding: 25px;
+                background-color: #fff;
+                box-shadow: 0px 4px 10px rgba(0,0,0,0.1);
+            }}
+            .slider-container {{
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin: 20px 0;
+            }}
+            .led-label {{
+                width: 60px;
+                font-weight: bold;
+                text-align: left;
+            }}
+            input[type=range] {{
+                flex: 1;
+                margin: 0 10px;
+                accent-color: #2979ff;
+            }}
+            .value {{
+                width: 40px;
+                font-weight: bold;
+                text-align: right;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="box">
+            <div class="slider-container">
+                <span class="led-label">LED1</span>
+                <input type="range" id="led0" min="0" max="100" value="{brightness[0]}" oninput="updateLED(0, this.value)">
+                <span id="val0" class="value">{brightness[0]}</span>
+            </div>
+            <div class="slider-container">
+                <span class="led-label">LED2</span>
+                <input type="range" id="led1" min="0" max="100" value="{brightness[1]}" oninput="updateLED(1, this.value)">
+                <span id="val1" class="value">{brightness[1]}</span>
+            </div>
+            <div class="slider-container">
+                <span class="led-label">LED3</span>
+                <input type="range" id="led2" min="0" max="100" value="{brightness[2]}" oninput="updateLED(2, this.value)">
+                <span id="val2" class="value">{brightness[2]}</span>
+            </div>
+        </div>
+
+        <script>
+            function updateLED(led, value) {{
+                // Update displayed value immediately
+                document.getElementById('val' + led).innerText = value;
+
+                // Send POST request to server
+                fetch("/", {{
+                    method: "POST",
+                    headers: {{
+                        "Content-Type": "application/x-www-form-urlencoded"
+                    }},
+                    body: "led=" + led + "&brightness=" + value
+                }});
+            }}
+        </script>
+    </body>
+    </html>
+    """
+
 def serve_web_page():
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # TCP-IP socket
-    s.bind(('', 80))
-    s.listen(1)  # up to 3 queued connections
     while True:
-        time.sleep(0.1)
-        print('Waiting for connection...')
-        conn, (client_ip, client_port) = s.accept()     # blocking call
-        request = conn.recv(1024)                 # read request (required even if none)
-        print(f'Connection from {client_ip}')   
-        conn.send(b'HTTP/1.1 200 OK\r\n')         # status line 
-        conn.send(b'Content-type: text/html\r\n') # header (content type)
-        conn.send(b'Connection: close\r\n\r\n')   # header (tell client to close)
-        # send body in try block in case connection is interrupted:
-        try:
-            conn.sendall(web_page())                    # body
-        finally:
-            conn.close()
+        print("Waiting for connection...")
+        conn, (client_ip, client_port) = s.accept()
+        print(f"Connection from {client_ip}:{client_port}")
+        client_message = conn.recv(2048).decode('utf-8')
+        print(f"Message from client:\n{client_message}")
 
-serve_web_page()
+        #parse the request, extract, and convert to int values for brightness change
+        data_dict = parsePOSTdata(client_message)
+        if 'led' in data_dict and 'brightness' in data_dict:
+            led = int(data_dict['led'])
+            value = int(data_dict['brightness'])
+            change_brightness(led, value)
+
+            # keep same LED and brightness value
+            conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n')
+            conn.sendall(web_page(led, value))
+        else:
+            # default to led 1 and brightness 0
+            conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n')
+            conn.sendall(web_page())
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.bind(('', 80))
+s.listen(3)
+
+webpageThread = threading.Thread(target=serve_web_page, daemon=True)
+webpageThread.start()
+
+try:
+    while True:
+        sleep(1)
+except KeyboardInterrupt:
+    print('\nExiting')
+    for pwm in pwms: 
+        pwm.stop()
+    GPIO.cleanup()
+    s.close()
