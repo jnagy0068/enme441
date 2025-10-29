@@ -25,7 +25,6 @@ def change_brightness(index, value):
     pwms[index].ChangeDutyCycle(value)
 
 def parsePOSTdata(data):
-    data = data.decode('utf-8')
     data_dict = {}
     idx = data.find('\r\n\r\n')+4
     data = data[idx:]
@@ -63,19 +62,22 @@ def serve_web_page():
         conn, (client_ip, client_port) = s.accept()
         print(f"Connection from {client_ip}:{client_port}")
         client_message = conn.recv(2048).decode('utf-8')
-        print(f"Message from client:\n{client_message}")
+print(f"Message from client:\n{client_message}")
 
-        data_dict = parsePOSTdata(client_message)
-        if 'led' in data_dict and 'brightness' in data_dict:
-            led = int(data_dict['led'])
-            value = int(data_dict['brightness'])
-            change_brightness(led, value)
+if client_message.startswith('POST'):
+    data_dict = parsePOSTdata(client_message)
+else:
+    data_dict = {}
 
-            conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n')
-            conn.sendall(web_page(led, value))
-        else:
-            conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n')
-            conn.sendall(web_page())
+if 'led' in data_dict and 'brightness' in data_dict:
+    led = int(data_dict['led'])
+    value = int(data_dict['brightness'])
+    change_brightness(led, value)
+    conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n')
+    conn.sendall(web_page(led))
+else:
+    conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n')
+    conn.sendall(web_page())
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.bind(('', 80))
