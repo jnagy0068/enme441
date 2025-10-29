@@ -127,18 +127,15 @@ def serve_web_page():
         client_message = conn.recv(2048).decode('utf-8')
         print(f"Message from client:\n{client_message}")
 
-        #parse the request, extract, and convert to int values for brightness change
         data_dict = parsePOSTdata(client_message)
         if 'led' in data_dict and 'brightness' in data_dict:
             led = int(data_dict['led'])
             value = int(data_dict['brightness'])
             change_brightness(led, value)
 
-            # keep same LED and brightness value
             conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n')
             conn.sendall(web_page(led, value))
         else:
-            # default to led 1 and brightness 0
             conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n')
             conn.sendall(web_page())
 
