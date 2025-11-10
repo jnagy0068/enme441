@@ -1,10 +1,9 @@
-from multiprocessing import Process, Value
+from multiprocessing import Process, Value, Lock
 from ctypes import c_double
 import time
 from shifter import Shifter
 
 
-# 8-step half-step sequence
 CYCLE = [
     0b0001,
     0b0011,
@@ -22,63 +21,48 @@ DELAY = 1200 / 1e6
 
 
 class Stepper:
-    """
-    Controls ONE motor on a 74HC595 shift register.
-    bit_offset = 4  → high nybble (motor 1)
-    bit_offset = 0  → low nybble  (motor 2)
-    """
-
-    def __init__(self, shifter, bit_offset):
+    def __init__(self, shifter, bit_offset, global_output, lock):
         self.s = shifter
-        self.bit_offset = bit_offset
-        self.pos = 0                              # index in CYCLE (0–7)
-        self.angle = Value(c_double, 0.0)         # multiprocessing-safe
+        self.bit_offset = bit_offset              # 4 for motor1, 0 for motor2
+        self.pos = 0
+        self.angle = Value(c_double, 0.0)
+        self.global_output = global_output        # shared 8-bit register
+        self.lock = lock                          # motor-specific lock
 
-    def _step(self, direction, my_shared, other_shared):
-        """
-        Perform ONE step in 'direction'.
-        Update shared pattern BEFORE output.
-        Read other motor's pattern.
-        Output one combined 8-bit pattern.
-        """
-        # update cycle index
+    def _step(self, direction):
         self.pos = (self.pos + direction) % 8
         my_pattern = CYCLE[self.pos]
 
-        # write my pattern to shared memory
-        my_shared.value = my_pattern
+        with self.lock:   # THIS MOTOR ONLY
+            # read current 8-bit state
+            current = self.global_output.value
 
-        # read other motor's pattern
-        other_pattern = other_shared.value
+            if self.bit_offset == 4:   # motor 1 (upper 4 bits)
+                new_output = (my_pattern << 4) | (current & 0x0F)
+            else:                      # motor 2 (lower 4 bits)
+                new_output = (current & 0xF0) | my_pattern
 
-        # combine into 8-bit output
-        if self.bit_offset == 4:    # I occupy high bits
-            combined = (my_pattern << 4) | other_pattern
-        else:                       # I occupy low bits
-            combined = (other_pattern << 4) | my_pattern
+            # write updated global byte
+            self.global_output.value = new_output
 
-        # send to shift register
-        self.s.shiftByte(combined)
+            # shift out
+            self.s.shiftByte(new_output)
+
         time.sleep(DELAY)
 
-        # update angle
         with self.angle.get_lock():
             self.angle.value += direction * STEP_ANGLE
 
-    def rotate(self, steps, my_shared, other_shared):
+    def rotate(self, steps):
         direction = 1 if steps >= 0 else -1
         for _ in range(abs(steps)):
-            self._step(direction, my_shared, other_shared)
+            self._step(direction)
 
-    def goAngle(self, target_angle, my_shared, other_shared):
-        """
-        Move to absolute angle using shortest path.
-        """
+    def goAngle(self, target):
         with self.angle.get_lock():
             curr = self.angle.value % 360.0
 
-        target = target_angle % 360.0
-
+        target = target % 360.0
         diff = target - curr
         if diff > 180:
             diff -= 360
@@ -86,9 +70,8 @@ class Stepper:
             diff += 360
 
         steps = int(diff / STEP_ANGLE)
-        self.rotate(steps, my_shared, other_shared)
+        self.rotate(steps)
 
-        # force angle to be exact target
         with self.angle.get_lock():
             self.angle.value = target
 
@@ -97,70 +80,47 @@ class Stepper:
             self.angle.value = 0.0
 
 
-def simultaneous(func1, func2):
-    """
-    Run two functions in parallel.
-    """
-    p1 = Process(target=func1)
-    p2 = Process(target=func2)
+def simultaneous(f1, f2):
+    p1 = Process(target=f1)
+    p2 = Process(target=f2)
     p1.start()
     p2.start()
     p1.join()
     p2.join()
 
 
-# ---------------------------------------------------------
-# MAIN PROGRAM
-# ---------------------------------------------------------
 if __name__ == "__main__":
     s = Shifter(dataPin=23, latchPin=24, clockPin=25)
 
-    # shared 4-bit patterns for both motors
-    m1_pat = Value("i", 0)   # motor 1's pattern
-    m2_pat = Value("i", 0)   # motor 2's pattern
+    global_output = Value("i", 0)      # entire 74HC595 byte
+    m1_lock = Lock()
+    m2_lock = Lock()
 
-    # high bits = motor1, low bits = motor2
-    m1 = Stepper(s, bit_offset=4)
-    m2 = Stepper(s, bit_offset=0)
+    m1 = Stepper(s, bit_offset=4, global_output=global_output, lock=m1_lock)
+    m2 = Stepper(s, bit_offset=0, global_output=global_output, lock=m2_lock)
 
-    # assignment command sequence
-    def sequence():
+    def seq():
         m1.zero()
         m2.zero()
 
         simultaneous(
-            lambda: m1.goAngle(90, m1_pat, m2_pat),
-            lambda: m2.goAngle(0, m2_pat, m1_pat)
+            lambda: m1.goAngle(90),
+            lambda: m2.goAngle(-90)
         )
 
         simultaneous(
-            lambda: m1.goAngle(-45, m1_pat, m2_pat),
-            lambda: m2.goAngle(0, m2_pat, m1_pat)
+            lambda: m1.goAngle(-45),
+            lambda: m2.goAngle(45)
         )
 
         simultaneous(
-            lambda: m1.goAngle(0, m1_pat, m2_pat),
-            lambda: m2.goAngle(-90, m2_pat, m1_pat)
+            lambda: m1.goAngle(-135),
+            lambda: m2.goAngle(0)
         )
 
         simultaneous(
-            lambda: m1.goAngle(0, m1_pat, m2_pat),
-            lambda: m2.goAngle(45, m2_pat, m1_pat)
+            lambda: m1.goAngle(0),
+            lambda: m2.goAngle(0)
         )
 
-        simultaneous(
-            lambda: m1.goAngle(-135, m1_pat, m2_pat),
-            lambda: m2.goAngle(0, m2_pat, m1_pat)
-        )
-
-        simultaneous(
-            lambda: m1.goAngle(135, m1_pat, m2_pat),
-            lambda: m2.goAngle(0, m2_pat, m1_pat)
-        )
-
-        simultaneous(
-            lambda: m1.goAngle(0, m1_pat, m2_pat),
-            lambda: m2.goAngle(0, m2_pat, m1_pat)
-        )
-
-    sequence()
+    seq()
