@@ -14,7 +14,7 @@
 from shifter import Shifter
 import time
 
-s = Shifter(data=16,clock=20,latch=21)   # Set up shifter
+s = Shifter(dataPin=16,clockPin=20,latchPin=21)   # Set up shifter
 
 cycle = [0b0001,
          0b0011,
