@@ -9,7 +9,7 @@ shared_states = multiprocessing.Array('i', 2)
 class Stepper:
     seq = [0b0001, 0b0011, 0b0010, 0b0110, 0b0100, 0b1100, 0b1000, 0b1001]
 
-    base_delay = 2000 #effects motor turn speed, too low can cause stalling
+    base_delay = 3000 #effects motor turn speed, too low can cause stalling
     steps_per_degree = 1024 / 360
 
     def __init__(self, shifter, lock, index):
