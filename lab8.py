@@ -94,6 +94,7 @@ if __name__ == '__main__':
         p1.join()
 
     except KeyboardInterrupt:
-        finally:
-            GPIO.cleanup()
-            sys.exit(0)
+        print("\n keyboard interrupt")
+    finally:
+        GPIO.cleanup()
+        sys.exit(0)
