@@ -71,20 +71,20 @@ if __name__ == '__main__':
     m1.zero()
     m2.zero()
     
-    time.sleep(.25)
+    time.sleep(.5)
     p1 = m1.goAngle(90)
     p2 = m2.goAngle(-90)
     p1.join(); p2.join()
 
-    time.sleep(.25)
+    time.sleep(.5)
     p1 = m1.goAngle(-45)
     p1.join()
 
-    time.sleep(.25)
+    time.sleep(.5)
     p1 = m1.goAngle(135)
     p2 = m2.goAngle(45)
     p1.join(); p2.join()
 
-    time.sleep(.25)
+    time.sleep(.5)
     p1 = m1.goAngle(0)
     p1.join()
