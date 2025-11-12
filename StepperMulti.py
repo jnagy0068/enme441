@@ -59,7 +59,7 @@ class Stepper:
 
 
 if __name__ == '__main__':
-    s = shifter(23, 24, 25)
+    s = Shifter(23, 24, 25)
     lock = multiprocessing.Lock()
 
     m1 = Stepper(s, lock, 0)
