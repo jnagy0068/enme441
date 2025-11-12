@@ -1,14 +1,13 @@
 import time
 import multiprocessing
-from shifter import Shifter  # your custom module
+from shifter import Shifter
 
-# Shared array for two steppers
 myArray = multiprocessing.Array('i', 2)
 
 class Stepper:
     seq = [0b0001, 0b0011, 0b0010, 0b0110,
            0b0100, 0b1100, 0b1000, 0b1001]
-    delay = 2000  # microseconds (adjust for speed)
+    delay = 2000 
     steps_per_degree = 1024 / 360
 
     def __init__(self, shifter, lock, index):
@@ -26,18 +25,15 @@ class Stepper:
         with self.lock:
             self.step_state = (self.step_state + direction) % 8
 
-            # Clear and set only this motor's 4 bits
             myArray[self.index] &= ~(0b1111 << self.shifter_bit_start)
             myArray[self.index] |= (Stepper.seq[self.step_state] << self.shifter_bit_start)
 
-            # Combine both motors' patterns
             final = 0
             for val in myArray:
                 final |= val
 
             self.s.shiftByte(final)
 
-        # Update local angle
         self.angle = (self.angle + direction / Stepper.steps_per_degree) % 360
         time.sleep(Stepper.delay / 1e6)
 
@@ -53,7 +49,6 @@ class Stepper:
         return p
 
     def goAngle(self, target):
-        # Use shortest angular distance
         delta = (target - self.angle + 540) % 360 - 180
         return self.rotate(delta)
 
