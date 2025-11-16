@@ -62,10 +62,10 @@ class Stepper:
     def zero(self):
         self.angle = 0
 
-    def test_laser():
-        GPIO.output(LASER_PIN, GPIO.HIGH)
-        time.sleep(3)
-        GPIO.output(LASER_PIN, GPIO.LOW)
+def test_laser():
+    GPIO.output(LASER_PIN, GPIO.HIGH)
+    time.sleep(3)
+    GPIO.output(LASER_PIN, GPIO.LOW)
 
 def parsePOSTdata(data):
     data_dict = {}
