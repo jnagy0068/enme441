@@ -3,6 +3,12 @@ import multiprocessing
 import socket
 import threading
 from shifter import Shifter
+import RPi.GPIO as GPIO
+
+GPIO.setmode(GPIO.BCM)
+LASER_PIN = 22
+GPIO.setup(LASER_PIN, GPIO.OUT)
+GPIO.output(LASER_PIN, GPIO.LOW)
 
 myArray = multiprocessing.Array('i', 2)
 
@@ -56,16 +62,21 @@ class Stepper:
     def zero(self):
         self.angle = 0
 
-def parsePOSTdata(data):
-    data_dict = {}
-    idx = data.find('\r\n\r\n') + 4
-    post = data[idx:]
-    pairs = post.split('&')
-    for p in pairs:
-        if '=' in p:
-            key, val = p.split('=')
-            data_dict[key] = val
-    return data_dict
+    def test_laser():
+        GPIO.output(LASER_PIN, GPIO.HIGH)
+        time.sleep(3)
+        GPIO.output(LASER_PIN, GPIO.LOW)
+
+    def parsePOSTdata(data):
+        data_dict = {}
+        idx = data.find('\r\n\r\n') + 4
+        post = data[idx:]
+        pairs = post.split('&')
+        for p in pairs:
+            if '=' in p:
+                key, val = p.split('=')
+                data_dict[key] = val
+        return data_dict
 
 
 def web_page(m1_angle, m2_angle):
@@ -81,7 +92,9 @@ def web_page(m1_angle, m2_angle):
             <label>Motor 2 Angle (degrees):</label><br>
             <input type="text" name="m2" value="{m2_angle}"><br><br>
 
-            <input type="submit" value="Rotate Motors">
+            <input type="submit" value="Rotate Motors"><br><br>
+            
+            <input type="submit" name="laser" value="Test Laser (3s)">
         </form>
     </body>
     </html>
@@ -104,21 +117,28 @@ def serve_web(m1, m2):
 
         if msg.startswith("POST"):
             data = parsePOSTdata(msg)
-            if "m1" in data:
+        
+            # Motor 1
+            if "m1" in data and data["m1"].strip() != "":
                 try:
                     m1_target = float(data["m1"])
                     p = m1.goAngle(m1_target)
                     p.join()
                 except:
                     pass
-
-            if "m2" in data:
+        
+            # Motor 2
+            if "m2" in data and data["m2"].strip() != "":
                 try:
                     m2_target = float(data["m2"])
                     p = m2.goAngle(m2_target)
                     p.join()
                 except:
                     pass
+
+            # Laser test button
+            if "laser" in data:
+                test_laser()
 
         response = web_page(m1.angle, m2.angle)
         conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n')
