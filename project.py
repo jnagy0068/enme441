@@ -1,5 +1,7 @@
 import time
 import multiprocessing
+import socket
+import threading
 from shifter import Shifter
 
 myArray = multiprocessing.Array('i', 2)
@@ -54,6 +56,75 @@ class Stepper:
     def zero(self):
         self.angle = 0
 
+def parsePOSTdata(data):
+    data_dict = {}
+    idx = data.find('\r\n\r\n') + 4
+    post = data[idx:]
+    pairs = post.split('&')
+    for p in pairs:
+        if '=' in p:
+            key, val = p.split('=')
+            data_dict[key] = val
+    return data_dict
+
+
+def web_page(m1_angle, m2_angle):
+    html = f"""
+    <html>
+    <head><title>Stepper Control</title></head>
+    <body style="font-family: Arial; text-align:center; margin-top:40px;">
+        <h2>Stepper Motor Angle Control</h2>
+        <form action="/" method="POST">
+            <label>Motor 1 Angle (degrees):</label><br>
+            <input type="text" name="m1" value="{m1_angle}"><br><br>
+
+            <label>Motor 2 Angle (degrees):</label><br>
+            <input type="text" name="m2" value="{m2_angle}"><br><br>
+
+            <input type="submit" value="Rotate Motors">
+        </form>
+    </body>
+    </html>
+    """
+    return bytes(html, 'utf-8')
+
+
+def serve_web(m1, m2):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(('', 8080))
+    s.listen(3)
+    print("Web server running on port 8080...")
+
+    while True:
+        conn, addr = s.accept()
+        msg = conn.recv(2048).decode()
+
+        m1_target = ""
+        m2_target = ""
+
+        if msg.startswith("POST"):
+            data = parsePOSTdata(msg)
+            if "m1" in data:
+                try:
+                    m1_target = float(data["m1"])
+                    p = m1.goAngle(m1_target)
+                    p.join()
+                except:
+                    pass
+
+            if "m2" in data:
+                try:
+                    m2_target = float(data["m2"])
+                    p = m2.goAngle(m2_target)
+                    p.join()
+                except:
+                    pass
+
+        response = web_page(m1.angle, m2.angle)
+        conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n')
+        conn.sendall(response)
+        conn.close()
+
 if __name__ == '__main__':
     s = Shifter(23, 24, 25)
     lock1 = multiprocessing.Lock()
@@ -64,21 +135,16 @@ if __name__ == '__main__':
 
     m1.zero()
     m2.zero()
-    
-    time.sleep(.5)
-    p1 = m1.goAngle(90)
-    p2 = m2.goAngle(-90)
-    p1.join(); p2.join()
 
-    time.sleep(.5)
-    p1 = m1.goAngle(-45)
-    p1.join()
+    # Start web server thread
+    t = threading.Thread(target=serve_web, args=(m1, m2), daemon=True)
+    t.start()
 
-    time.sleep(.5)
-    p1 = m1.goAngle(135)
-    p2 = m2.goAngle(45)
-    p1.join(); p2.join()
+    print("Motors initialized. Web interface ready.")
+    print("Open a browser to: http://<raspberry-pi-ip>:8080")
 
-    time.sleep(.5)
-    p1 = m1.goAngle(0)
-    p1.join()
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("Exiting.")
