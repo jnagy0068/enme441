@@ -67,16 +67,16 @@ class Stepper:
         time.sleep(3)
         GPIO.output(LASER_PIN, GPIO.LOW)
 
-    def parsePOSTdata(data):
-        data_dict = {}
-        idx = data.find('\r\n\r\n') + 4
-        post = data[idx:]
-        pairs = post.split('&')
-        for p in pairs:
-            if '=' in p:
-                key, val = p.split('=')
-                data_dict[key] = val
-        return data_dict
+def parsePOSTdata(data):
+    data_dict = {}
+    idx = data.find('\r\n\r\n') + 4
+    post = data[idx:]
+    pairs = post.split('&')
+    for p in pairs:
+        if '=' in p:
+            key, val = p.split('=')
+            data_dict[key] = val
+    return data_dict
 
 
 def web_page(m1_angle, m2_angle):
