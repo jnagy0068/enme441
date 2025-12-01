@@ -137,7 +137,7 @@ def serve_web(m1, m2):
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(('', 8080))
     s.listen(3)
-    print("Web server running on port 8080...")
+    print("running at IP:8080")
 
     while True:
         conn, addr = s.accept()
@@ -218,9 +218,6 @@ if __name__ == '__main__':
     # start web server thread
     t = threading.Thread(target=serve_web, args=(m1, m2), daemon=True)
     t.start()
-
-    print("Motors initialized. Web interface ready.")
-    print("Open a browser to: http://<raspberry-pi-ip>:8080")
 
     try:
         while True:
