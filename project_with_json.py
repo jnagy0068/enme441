@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import time
 import multiprocessing
 import socket
@@ -16,9 +15,6 @@ GPIO.output(laser, GPIO.LOW)
 
 myArray = multiprocessing.Array('i', 2)
 
-# ---------------------------
-# LOAD JSON POSITIONS (from script directory)
-# ---------------------------
 positions = {}
 
 def load_positions():
@@ -39,7 +35,6 @@ def load_positions():
         print("JSON file not found at:", filename)
 
 load_positions()
-# ---------------------------
 
 
 class Stepper:
@@ -93,29 +88,23 @@ class Stepper:
         self.angle = 0
 
 
-def test_laser():
-    GPIO.output(laser, GPIO.HIGH)
+def test_():
+    GPIO.output(, GPIO.HIGH)
     time.sleep(3)
-    GPIO.output(laser, GPIO.LOW)
+    GPIO.output(, GPIO.LOW)
 
 
 def parsePOSTdata(data):
-    """
-    Parse POST body from a raw HTTP request string `data`.
-    Returns a dict mapping names to first value (URL-decoded).
-    """
     idx = data.find('\r\n\r\n')
     if idx == -1:
         return {}
     post = data[idx+4:]
-    # parse_qs returns lists for each key; choose first value
     parsed = parse_qs(post, keep_blank_values=True)
     simple = {k: v[0] for k, v in parsed.items()}
     return simple
 
 
 def web_page(m1_angle, m2_angle):
-    # Simple HTML with a text input for team number
     html = f"""
     <html>
     <head><title>Stepper Control</title></head>
@@ -135,10 +124,8 @@ def web_page(m1_angle, m2_angle):
 
             <input type="submit" value="Rotate Motors"><br><br>
 
-            <input type="submit" name="laser" value="Test Laser (3s)">
+            <input type="submit" name="" value="Test Laser (3s)">
         </form>
-
-        <p style="color:gray; font-size:12px;">Note: After submitting a team number, check the Raspberry Pi terminal for radius/theta output.</p>
     </body>
     </html>
     """
@@ -167,15 +154,15 @@ def serve_web(m1, m2):
         if msg.startswith("POST"):
             data = parsePOSTdata(msg)
 
-            # Handle team input (text)
+            # team input (text)
             if "team" in data and data["team"].strip() != "":
                 t = data["team"].strip()
-                # If user typed an int-like value, keep as string key lookup
+                # if user typed an int-like value, keep as string key lookup
                 if t in positions.get("turrets", {}):
                     try:
                         r = positions["turrets"][t]["r"]
                         theta = positions["turrets"][t]["theta"]
-                        print(f"\n--- TEAM {t} SELECTED ---")
+                        print(f"\nTeam {t} Selected")
                         print(f"Radius  = {r}")
                         print(f"Theta   = {theta}\n")
                     except Exception as e:
@@ -183,7 +170,7 @@ def serve_web(m1, m2):
                 else:
                     print(f"Team '{t}' not found in positions. Available keys: {list(positions.get('turrets', {}).keys())}")
 
-            # Motor 1 control
+            # motor 1 control
             if "m1" in data and data["m1"].strip() != "":
                 try:
                     m1_target = float(data["m1"])
@@ -192,7 +179,7 @@ def serve_web(m1, m2):
                 except Exception as e:
                     print("Error rotating motor 1:", e)
 
-            # Motor 2 control
+            # motor 2 control
             if "m2" in data and data["m2"].strip() != "":
                 try:
                     m2_target = float(data["m2"])
@@ -201,11 +188,11 @@ def serve_web(m1, m2):
                 except Exception as e:
                     print("Error rotating motor 2:", e)
 
-            # Laser test button
+            # laser test button
             if "laser" in data:
                 test_laser()
 
-        # Respond with the page showing current motor angles
+        # respond with the page showing current motor angles
         try:
             response = web_page(m1.angle, m2.angle)
             conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n')
@@ -217,7 +204,7 @@ def serve_web(m1, m2):
 
 
 if __name__ == '__main__':
-    # Create shifter and steppers as before
+    # create shifter and steppers as before
     s = Shifter(23, 24, 25)
     lock1 = multiprocessing.Lock()
     lock2 = multiprocessing.Lock()
@@ -228,7 +215,7 @@ if __name__ == '__main__':
     m1.zero()
     m2.zero()
 
-    # Start web server thread
+    # start web server thread
     t = threading.Thread(target=serve_web, args=(m1, m2), daemon=True)
     t.start()
 
