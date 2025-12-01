@@ -110,7 +110,9 @@ def parsePOSTdata(data):
 # UPDATED HTML WITH DROPDOWN
 # ---------------------------
 def web_page(m1_angle, m2_angle):
-    turret_options = "".join([f"<option value='{t}'>{t}</option>" for t in positions.get("turrets", {})])
+    turret_options = ""
+    for t in positions.get("turrets", {}):
+        turret_options += f"<option value=\"{t}\">{t}</option>\n"
 
     html = f"""
     <html>
