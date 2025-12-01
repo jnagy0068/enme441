@@ -89,9 +89,9 @@ class Stepper:
 
 
 def test_():
-    GPIO.output(, GPIO.HIGH)
+    GPIO.output(laser, GPIO.HIGH)
     time.sleep(3)
-    GPIO.output(, GPIO.LOW)
+    GPIO.output(laser, GPIO.LOW)
 
 
 def parsePOSTdata(data):
