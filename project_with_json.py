@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import time
 import multiprocessing
 import socket
@@ -6,32 +7,36 @@ import json
 from shifter import Shifter
 import RPi.GPIO as GPIO
 import os
+from urllib.parse import parse_qs
 
 GPIO.setmode(GPIO.BCM)
-LASER_PIN = 22
-GPIO.setup(LASER_PIN, GPIO.OUT)
-GPIO.output(LASER_PIN, GPIO.LOW)
+laser = 22
+GPIO.setup(laser, GPIO.OUT)
+GPIO.output(laser, GPIO.LOW)
 
 myArray = multiprocessing.Array('i', 2)
 
 # ---------------------------
-# LOAD JSON POSITIONS
+# LOAD JSON POSITIONS (from script directory)
 # ---------------------------
 positions = {}
 
 def load_positions():
     global positions
-    filename = "test_positions.json"
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    filename = os.path.join(script_dir, "test_positions.json")
+
     if os.path.exists(filename):
         try:
             with open(filename, "r") as f:
                 positions = json.load(f)
             print("Loaded JSON position file successfully:")
             print(json.dumps(positions, indent=2))
+            print("Available turret keys:", list(positions.get("turrets", {}).keys()))
         except Exception as e:
             print("Error loading JSON:", e)
     else:
-        print("JSON file not found:", filename)
+        print("JSON file not found at:", filename)
 
 load_positions()
 # ---------------------------
@@ -39,7 +44,7 @@ load_positions()
 
 class Stepper:
     seq = [0b0001, 0b0011, 0b0010, 0b0110, 0b0100, 0b1100, 0b1000, 0b1001]
-    delay = 500
+    delay = 500 
     steps_per_degree = 4 * 1024 / 360
 
     def __init__(self, shifter, lock, index):
@@ -89,31 +94,28 @@ class Stepper:
 
 
 def test_laser():
-    GPIO.output(LASER_PIN, GPIO.HIGH)
+    GPIO.output(laser, GPIO.HIGH)
     time.sleep(3)
-    GPIO.output(LASER_PIN, GPIO.LOW)
+    GPIO.output(laser, GPIO.LOW)
 
 
 def parsePOSTdata(data):
-    data_dict = {}
-    idx = data.find('\r\n\r\n') + 4
-    post = data[idx:]
-    pairs = post.split('&')
-    for p in pairs:
-        if '=' in p:
-            key, val = p.split('=')
-            data_dict[key] = val
-    return data_dict
+    """
+    Parse POST body from a raw HTTP request string `data`.
+    Returns a dict mapping names to first value (URL-decoded).
+    """
+    idx = data.find('\r\n\r\n')
+    if idx == -1:
+        return {}
+    post = data[idx+4:]
+    # parse_qs returns lists for each key; choose first value
+    parsed = parse_qs(post, keep_blank_values=True)
+    simple = {k: v[0] for k, v in parsed.items()}
+    return simple
 
 
-# ---------------------------
-# UPDATED HTML WITH DROPDOWN
-# ---------------------------
 def web_page(m1_angle, m2_angle):
-    turret_options = ""
-    for t in positions.get("turrets", {}):
-        turret_options += f"<option value=\"{t}\">{t}</option>\n"
-
+    # Simple HTML with a text input for team number
     html = f"""
     <html>
     <head><title>Stepper Control</title></head>
@@ -121,14 +123,12 @@ def web_page(m1_angle, m2_angle):
         <h2>Stepper Motor Angle Control</h2>
 
         <form action="/" method="POST">
-            <label>Select Turret Team:</label><br>
-            <select name="team">
-                <option value="">-- Choose --</option>
-                {turret_options}
-            </select><br><br>
-
+            <label>Type Team Number (e.g. 1, 21):</label><br>
+            <input type="text" name="team" placeholder="Enter team number"><br><br>
             <input type="submit" value="Get Position"><br><br>
-            
+
+            <hr style="width:40%; margin:20px auto;">
+
             <label>Motor 1 Angle (degrees):</label><br>
             <input type="text" name="m1" value="{m1_angle}"><br><br>
 
@@ -136,73 +136,90 @@ def web_page(m1_angle, m2_angle):
             <input type="text" name="m2" value="{m2_angle}"><br><br>
 
             <input type="submit" value="Rotate Motors"><br><br>
-            
+
             <input type="submit" name="laser" value="Test Laser (3s)">
         </form>
+
+        <p style="color:gray; font-size:12px;">Note: After submitting a team number, check the Raspberry Pi terminal for radius/theta output.</p>
     </body>
     </html>
     """
     return bytes(html, 'utf-8')
-# ---------------------------
 
 
-# ---------------------------
-# HANDLE TEAM DROPDOWN
-# ---------------------------
 def serve_web(m1, m2):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(('', 8080))
     s.listen(3)
     print("Web server running on port 8080...")
 
     while True:
         conn, addr = s.accept()
-        msg = conn.recv(2048).decode()
+        try:
+            msg = conn.recv(4096).decode(errors='ignore')
+            # debug:
+            # print("----- RAW REQUEST -----")
+            # print(msg)
+        except Exception as e:
+            print("Failed to read request:", e)
+            conn.close()
+            continue
 
         if msg.startswith("POST"):
             data = parsePOSTdata(msg)
 
-            # Handle team dropdown
+            # Handle team input (text)
             if "team" in data and data["team"].strip() != "":
-                t = data["team"]
+                t = data["team"].strip()
+                # If user typed an int-like value, keep as string key lookup
                 if t in positions.get("turrets", {}):
-                    r = positions["turrets"][t]["r"]
-                    theta = positions["turrets"][t]["theta"]
+                    try:
+                        r = positions["turrets"][t]["r"]
+                        theta = positions["turrets"][t]["theta"]
+                        print(f"\n--- TEAM {t} SELECTED ---")
+                        print(f"Radius  = {r}")
+                        print(f"Theta   = {theta}\n")
+                    except Exception as e:
+                        print(f"Error reading turret data for team {t}: {e}")
+                else:
+                    print(f"Team '{t}' not found in positions. Available keys: {list(positions.get('turrets', {}).keys())}")
 
-                    print(f"\n--- TEAM {t} SELECTED ---")
-                    print(f"Radius  = {r}")
-                    print(f"Theta   = {theta}\n")
-
-            # Motor 1
+            # Motor 1 control
             if "m1" in data and data["m1"].strip() != "":
                 try:
                     m1_target = float(data["m1"])
                     p = m1.goAngle(m1_target)
                     p.join()
-                except:
-                    pass
+                except Exception as e:
+                    print("Error rotating motor 1:", e)
 
-            # Motor 2
+            # Motor 2 control
             if "m2" in data and data["m2"].strip() != "":
                 try:
                     m2_target = float(data["m2"])
                     p = m2.goAngle(m2_target)
                     p.join()
-                except:
-                    pass
+                except Exception as e:
+                    print("Error rotating motor 2:", e)
 
             # Laser test button
             if "laser" in data:
                 test_laser()
 
-        response = web_page(m1.angle, m2.angle)
-        conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n')
-        conn.sendall(response)
+        # Respond with the page showing current motor angles
+        try:
+            response = web_page(m1.angle, m2.angle)
+            conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n')
+            conn.sendall(response)
+        except Exception as e:
+            print("Failed to send response:", e)
+
         conn.close()
-# ---------------------------
 
 
 if __name__ == '__main__':
+    # Create shifter and steppers as before
     s = Shifter(23, 24, 25)
     lock1 = multiprocessing.Lock()
     lock2 = multiprocessing.Lock()
@@ -213,6 +230,7 @@ if __name__ == '__main__':
     m1.zero()
     m2.zero()
 
+    # Start web server thread
     t = threading.Thread(target=serve_web, args=(m1, m2), daemon=True)
     t.start()
 
