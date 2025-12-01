@@ -162,9 +162,9 @@ def serve_web(m1, m2):
                     try:
                         r = positions["turrets"][t]["r"]
                         theta = positions["turrets"][t]["theta"]
-                        print(f"\nTeam {t} Selected")
-                        print(f"Radius  = {r}")
-                        print(f"Theta   = {theta}\n")
+                        print(f"\nTeam {t} Selected:")
+                        print(f"Radius = {r}")
+                        print(f"Theta  = {theta}\n")
                     except Exception as e:
                         print(f"Error reading turret data for team {t}: {e}")
                 else:
