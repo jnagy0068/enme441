@@ -123,11 +123,9 @@ def web_page(m1_angle, m2_angle):
         <h2>Stepper Motor Angle Control</h2>
 
         <form action="/" method="POST">
-            <label>Type Team Number (e.g. 1, 21):</label><br>
+            <label>Type Team Number:</label><br>
             <input type="text" name="team" placeholder="Enter team number"><br><br>
             <input type="submit" value="Get Position"><br><br>
-
-            <hr style="width:40%; margin:20px auto;">
 
             <label>Motor 1 Angle (degrees):</label><br>
             <input type="text" name="m1" value="{m1_angle}"><br><br>
