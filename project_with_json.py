@@ -17,7 +17,7 @@ myArray = multiprocessing.Array('i', 2)
 
 positions = {}
 calibration = {"az_offset": 0.0, "el_offset": 0.0}
-self_team = {"id": None}  # NEW — user-entered team number for this turret
+self_team = {"id": None}
 
 
 def load_positions():
@@ -36,6 +36,7 @@ def load_positions():
             print("Error loading JSON:", e)
     else:
         print("JSON file not found at:", filename)
+
 
 load_positions()
 
@@ -103,6 +104,18 @@ def save_zero(m1, m2):
     print("Saved zero position:", calibration)
 
 
+def return_to_zero(m1, m2):
+    target_el = calibration["el_offset"]
+    target_az = calibration["az_offset"]
+
+    print("Returning to zero...")
+
+    p1 = m1.goAngle(target_el)
+    p2 = m2.goAngle(target_az)
+    p1.join()
+    p2.join()
+
+
 def aim_at_team(m1, m2, target_team):
     if self_team["id"] is None:
         print("ERROR: Self team number not set.")
@@ -117,21 +130,13 @@ def aim_at_team(m1, m2, target_team):
         print("ERROR: This turret's team number not in JSON:", st)
         return
 
-    # Load our own and target coordinates
-    r_self = positions["turrets"][st]["r"]
     th_self = positions["turrets"][st]["theta"]
-
-    r_tgt = positions["turrets"][target_team]["r"]
     th_tgt = positions["turrets"][target_team]["theta"]
 
-    # Compute RELATIVE azimuth angle
     rel_theta = (th_tgt - th_self)
     az = rel_theta * 180.0 / 3.1415926535
-
-    # Field is flat → elevation = zero
     el = 0
 
-    # Apply calibration offsets
     az += calibration["az_offset"]
     el += calibration["el_offset"]
 
@@ -144,19 +149,19 @@ def aim_at_team(m1, m2, target_team):
 
 
 def parsePOSTdata(data):
-    idx = data.find('\r\n\r\n')
+    idx = data.find("\r\n\r\n")
     if idx == -1:
         return {}
-    post = data[idx+4:]
+    post = data[idx + 4:]
     parsed = parse_qs(post, keep_blank_values=True)
-    simple = {k: v[0] for k, v in parsed.items()}
-    return simple
+    return {k: v[0] for k, v in parsed.items()}
 
 
 def web_page(m1_angle, m2_angle):
     html = f"""
     <html>
     <head><title>Laser Turret</title></head>
+
     <body style="font-family: Arial; text-align:center; margin-top:40px;">
 
         <h2>Laser Turret Control</h2>
@@ -172,11 +177,45 @@ def web_page(m1_angle, m2_angle):
             <input type="submit" name="aim_team" value="Aim at Team"><br><br>
 
             <h3>Manual Motor Control</h3>
-            Elevation (m1): <input type="text" name="m1" value="{m1_angle}"><br><br>
-            Azimuth (m2):   <input type="text" name="m2" value="{m2_angle}"><br><br>
+
+            <h4>Elevation (Motor 1)</h4>
+            <input type="text" name="m1" value="{m1_angle}"><br><br>
+
+            <button name="m1_jog" value="-90">-90°</button>
+            <button name="m1_jog" value="-45">-45°</button>
+            <button name="m1_jog" value="-15">-15°</button>
+            <button name="m1_jog" value="-5">-5°</button>
+            <button name="m1_jog" value="-1">-1°</button>
+            <br><br>
+            <button name="m1_jog" value="1">+1°</button>
+            <button name="m1_jog" value="5">+5°</button>
+            <button name="m1_jog" value="15">+15°</button>
+            <button name="m1_jog" value="45">+45°</button>
+            <button name="m1_jog" value="90">+90°</button>
+
+            <br><br><br>
+
+            <h4>Azimuth (Motor 2)</h4>
+            <input type="text" name="m2" value="{m2_angle}"><br><br>
+
+            <button name="m2_jog" value="-90">-90°</button>
+            <button name="m2_jog" value="-45">-45°</button>
+            <button name="m2_jog" value="-15">-15°</button>
+            <button name="m2_jog" value="-5">-5°</button>
+            <button name="m2_jog" value="-1">-1°</button>
+            <br><br>
+            <button name="m2_jog" value="1">+1°</button>
+            <button name="m2_jog" value="5">+5°</button>
+            <button name="m2_jog" value="15">+15°</button>
+            <button name="m2_jog" value="45">+45°</button>
+            <button name="m2_jog" value="90">+90°</button>
+
+            <br><br><br>
+
             <input type="submit" value="Rotate Motors"><br><br>
 
             <h3>Calibration</h3>
+            <input type="submit" name="return_zero" value="Return to Zero"><br><br>
             <input type="submit" name="save_zero" value="Save Current Position as Zero"><br><br>
 
             <h3>Laser</h3>
@@ -186,41 +225,53 @@ def web_page(m1_angle, m2_angle):
     </body>
     </html>
     """
-
     return bytes(html, "utf-8")
 
 
 def serve_web(m1, m2):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind(('', 8080))
+    s.bind(("", 8080))
     s.listen(3)
     print("running at IP:8080")
 
     while True:
         conn, addr = s.accept()
         try:
-            msg = conn.recv(4096).decode(errors='ignore')
-        except Exception as e:
+            msg = conn.recv(4096).decode(errors="ignore")
+        except:
             conn.close()
             continue
 
         if msg.startswith("POST"):
             data = parsePOSTdata(msg)
 
-            # Set this turret's own team number
             if "set_self_team" in data:
                 if data.get("self_team", "").strip() != "":
                     self_team["id"] = data["self_team"].strip()
                     print("This turret's team set to:", self_team["id"])
 
-            # Aim at another team
             if "aim_team" in data:
                 t = data.get("team_box", "").strip()
                 if t != "":
                     aim_at_team(m1, m2, t)
 
-            # Manual elevation control
+            if "m1_jog" in data:
+                try:
+                    delta = float(data["m1_jog"])
+                    p = m1.rotate(delta)
+                    p.join()
+                except:
+                    pass
+
+            if "m2_jog" in data:
+                try:
+                    delta = float(data["m2_jog"])
+                    p = m2.rotate(delta)
+                    p.join()
+                except:
+                    pass
+
             if "m1" in data and data["m1"].strip() != "":
                 try:
                     el = float(data["m1"])
@@ -229,7 +280,6 @@ def serve_web(m1, m2):
                 except:
                     pass
 
-            # Manual azimuth control
             if "m2" in data and data["m2"].strip() != "":
                 try:
                     az = float(data["m2"])
@@ -238,18 +288,18 @@ def serve_web(m1, m2):
                 except:
                     pass
 
-            # Save zero calibration
+            if "return_zero" in data:
+                return_to_zero(m1, m2)
+
             if "save_zero" in data:
                 save_zero(m1, m2)
 
-            # Fire laser
             if "laser" in data:
                 test_laser()
 
-        # Send page
         try:
             response = web_page(m1.angle, m2.angle)
-            conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n')
+            conn.send(b"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n")
             conn.sendall(response)
         except:
             pass
@@ -257,7 +307,7 @@ def serve_web(m1, m2):
         conn.close()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     s = Shifter(23, 24, 25)
     lock1 = multiprocessing.Lock()
     lock2 = multiprocessing.Lock()
