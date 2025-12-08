@@ -120,13 +120,13 @@ def web_page(m1_angle, m2_angle):
 
             <input type="submit" value="Rotate Motors"><br><br>
 
-            <input type="submit" name="" value="Test Laser (3s)">
+            <!-- FIXED BUTTON -->
+            <input type="submit" name="laser" value="Test Laser (3s)">
         </form>
     </body>
     </html>
     """
     return bytes(html, 'utf-8')
-
 
 def serve_web(m1, m2):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
