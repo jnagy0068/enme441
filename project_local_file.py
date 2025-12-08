@@ -5,7 +5,7 @@ import threading
 import json
 from shifter import Shifter
 import RPi.GPIO as GPIO
-import requests
+import os
 from urllib.parse import parse_qs
 import math
 
@@ -18,21 +18,24 @@ GPIO.output(laser, GPIO.LOW)
 # --- Shared Memory for Stepper Shifter ---
 myArray = multiprocessing.Array('i', 2)
 
-# --- Load positions from IP ---
+# --- Load positions from local JSON ---
 positions = {}
-JSON_URL = "http://192.168.1.254:8000/positions.json"
 
 def load_positions():
     global positions
-    try:
-        response = requests.get(JSON_URL, timeout=5)
-        response.raise_for_status()
-        positions = response.json()
-        print("Loaded JSON position file successfully from IP:")
-        print(json.dumps(positions, indent=2))
-        print("Available turret keys:", list(positions.get("turrets", {}).keys()))
-    except Exception as e:
-        print("Error loading JSON from IP:", e)
+    script_dir = os.path.dirname(os.path.realpath(__file__))
+    filename = os.path.join(script_dir, "test_positions.json")
+    if os.path.exists(filename):
+        try:
+            with open(filename, "r") as f:
+                positions = json.load(f)
+            print("Loaded JSON position file successfully:")
+            print(json.dumps(positions, indent=2))
+            print("Available turret keys:", list(positions.get("turrets", {}).keys()))
+        except Exception as e:
+            print("Error loading JSON:", e)
+    else:
+        print("JSON file not found at:", filename)
 
 load_positions()
 
@@ -114,7 +117,7 @@ def aim_at_team(m1, m2, target_team):
         print("ERROR: Self team number not set.")
         return
     if target_team not in positions.get("turrets", {}):
-        print("Team not found in positions:", target_team)
+        print("Team not found in JSON:", target_team)
         return
 
     st = self_team["id"]
@@ -124,9 +127,9 @@ def aim_at_team(m1, m2, target_team):
 
     # Get turret positions in radians
     th_self = positions["turrets"][st]["theta"]
-    th_tgt = positions["turrets"][target_team]["theta"]
+    th_tgt  = positions["turrets"][target_team]["theta"]
 
-    # Cartesian positions on the circle (radius arbitrary since it cancels)
+    # Cartesian positions on the circle
     R = 1.0
     x_self = R * math.cos(th_self)
     y_self = R * math.sin(th_self)
