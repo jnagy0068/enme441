@@ -9,8 +9,8 @@ import os
 from urllib.parse import parse_qs
 import math
 
-# z-positions
-turret_height_self = 0.3     # your turret laser height
+# z-positions (centimeters)
+turret_height_self = 3.0     # your turret laser height
 turret_height_other = 0.0    # all other turrets' laser height
 
 # --- GPIO Setup ---
