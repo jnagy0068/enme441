@@ -2,15 +2,36 @@ import time
 import multiprocessing
 import socket
 import threading
+import json
 from shifter import Shifter
 import RPi.GPIO as GPIO
+import requests
+from urllib.parse import parse_qs
 
 GPIO.setmode(GPIO.BCM)
-LASER_PIN = 22
-GPIO.setup(LASER_PIN, GPIO.OUT)
-GPIO.output(LASER_PIN, GPIO.LOW)
+laser = 22
+GPIO.setup(laser, GPIO.OUT)
+GPIO.output(laser, GPIO.LOW)
 
 myArray = multiprocessing.Array('i', 2)
+
+positions = {}
+JSON_URL = "http://192.168.1.254:8000/positions.json"
+
+def load_positions():
+    global positions
+    try:
+        response = requests.get(JSON_URL, timeout=5)
+        response.raise_for_status()
+        positions = response.json()
+        print("Loaded JSON position file successfully from IP:")
+        print(json.dumps(positions, indent=2))
+        print("Available turret keys:", list(positions.get("turrets", {}).keys()))
+    except Exception as e:
+        print("Error loading JSON from IP:", e)
+
+load_positions()
+
 
 class Stepper:
     seq = [0b0001, 0b0011, 0b0010, 0b0110, 0b0100, 0b1100, 0b1000, 0b1001]
@@ -62,21 +83,21 @@ class Stepper:
     def zero(self):
         self.angle = 0
 
+
 def test_laser():
-    GPIO.output(LASER_PIN, GPIO.HIGH)
+    GPIO.output(laser, GPIO.HIGH)
     time.sleep(3)
-    GPIO.output(LASER_PIN, GPIO.LOW)
+    GPIO.output(laser, GPIO.LOW)
+
 
 def parsePOSTdata(data):
-    data_dict = {}
-    idx = data.find('\r\n\r\n') + 4
-    post = data[idx:]
-    pairs = post.split('&')
-    for p in pairs:
-        if '=' in p:
-            key, val = p.split('=')
-            data_dict[key] = val
-    return data_dict
+    idx = data.find('\r\n\r\n')
+    if idx == -1:
+        return {}
+    post = data[idx+4:]
+    parsed = parse_qs(post, keep_blank_values=True)
+    simple = {k: v[0] for k, v in parsed.items()}
+    return simple
 
 
 def web_page(m1_angle, m2_angle):
@@ -85,7 +106,12 @@ def web_page(m1_angle, m2_angle):
     <head><title>Stepper Control</title></head>
     <body style="font-family: Arial; text-align:center; margin-top:40px;">
         <h2>Stepper Motor Angle Control</h2>
+
         <form action="/" method="POST">
+            <label>Type Team Number:</label><br>
+            <input type="text" name="team" placeholder="Enter team number"><br><br>
+            <input type="submit" value="Get Position"><br><br>
+
             <label>Motor 1 Angle (degrees):</label><br>
             <input type="text" name="m1" value="{m1_angle}"><br><br>
 
@@ -93,7 +119,8 @@ def web_page(m1_angle, m2_angle):
             <input type="text" name="m2" value="{m2_angle}"><br><br>
 
             <input type="submit" value="Rotate Motors"><br><br>
-            
+
+            <!-- FIXED BUTTON -->
             <input type="submit" name="laser" value="Test Laser (3s)">
         </form>
     </body>
@@ -101,51 +128,75 @@ def web_page(m1_angle, m2_angle):
     """
     return bytes(html, 'utf-8')
 
-
 def serve_web(m1, m2):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(('', 8080))
     s.listen(3)
-    print("Web server running on port 8080...")
+    print("running at IP:8080")
 
     while True:
         conn, addr = s.accept()
-        msg = conn.recv(2048).decode()
-
-        m1_target = ""
-        m2_target = ""
+        try:
+            msg = conn.recv(4096).decode(errors='ignore')
+        except Exception as e:
+            print("Failed to read request:", e)
+            conn.close()
+            continue
 
         if msg.startswith("POST"):
             data = parsePOSTdata(msg)
-        
-            # Motor 1
+
+            # team input (text)
+            if "team" in data and data["team"].strip() != "":
+                t = data["team"].strip()
+                if t in positions.get("turrets", {}):
+                    try:
+                        r = positions["turrets"][t]["r"]
+                        theta = positions["turrets"][t]["theta"]
+                        print(f"\nTeam {t} Selected:")
+                        print(f"Radius = {r}")
+                        print(f"Theta  = {theta}\n")
+                    except Exception as e:
+                        print(f"Error reading turret data for team {t}: {e}")
+                else:
+                    print(f"Team '{t}' not found in positions. Available keys: {list(positions.get('turrets', {}).keys())}")
+
+            # motor 1 control
             if "m1" in data and data["m1"].strip() != "":
                 try:
                     m1_target = float(data["m1"])
                     p = m1.goAngle(m1_target)
                     p.join()
-                except:
-                    pass
-        
-            # Motor 2
+                except Exception as e:
+                    print("Error rotating motor 1:", e)
+
+            # motor 2 control
             if "m2" in data and data["m2"].strip() != "":
                 try:
                     m2_target = float(data["m2"])
                     p = m2.goAngle(m2_target)
                     p.join()
-                except:
-                    pass
+                except Exception as e:
+                    print("Error rotating motor 2:", e)
 
-            # Laser test button
+            # laser test button
             if "laser" in data:
-                test_laser()
+                test_()
 
-        response = web_page(m1.angle, m2.angle)
-        conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n')
-        conn.sendall(response)
+        # respond with the page showing current motor angles
+        try:
+            response = web_page(m1.angle, m2.angle)
+            conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n')
+            conn.sendall(response)
+        except Exception as e:
+            print("Failed to send response:", e)
+
         conn.close()
 
+
 if __name__ == '__main__':
+    # create shifter and steppers as before
     s = Shifter(23, 24, 25)
     lock1 = multiprocessing.Lock()
     lock2 = multiprocessing.Lock()
@@ -156,12 +207,9 @@ if __name__ == '__main__':
     m1.zero()
     m2.zero()
 
-    # Start web server thread
+    # start web server thread
     t = threading.Thread(target=serve_web, args=(m1, m2), daemon=True)
     t.start()
-
-    print("Motors initialized. Web interface ready.")
-    print("Open a browser to: http://<raspberry-pi-ip>:8080")
 
     try:
         while True:
