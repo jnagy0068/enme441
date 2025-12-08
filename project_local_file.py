@@ -138,7 +138,9 @@ def aim_at_team(m1, m2, target_team):
 
     # Angle relative to turret's current pointing (toward center)
     az_rad = math.atan2(y_tgt - y_self, x_tgt - x_self) - (th_self + math.pi)
-    az_deg = az_rad * 180.0 / math.pi
+
+    # FIX: flip the sign to match manual control convention
+    az_deg = -az_rad * 180.0 / math.pi
 
     # Apply calibration offsets
     az_deg += calibration["az_offset"]
