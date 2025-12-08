@@ -160,8 +160,15 @@ def parsePOSTdata(data):
     parsed = parse_qs(post, keep_blank_values=True)
     return {k:v[0] for k,v in parsed.items()}
 
-# --- Web Page ---
+# --- Web Page with Manual Jog Buttons ---
 def web_page(m1_angle, m2_angle):
+    def jog_buttons(name):
+        buttons = [-90, -45, -15, -5, -1, 1, 5, 15, 45, 90]
+        html_buttons = ""
+        for b in buttons:
+            html_buttons += f'<button name="{name}_jog" value="{b}">{b:+}°</button> '
+        return html_buttons
+
     html = f"""
     <html>
     <head><title>Laser Turret</title></head>
@@ -177,11 +184,14 @@ def web_page(m1_angle, m2_angle):
             <input type="submit" name="aim_team" value="Aim at Team"><br>
 
             <h3>Manual Motor Control</h3>
-            <label>Azimuth:</label><br>
+            <h4>Azimuth</h4>
             <input type="text" name="m2" value="{m2_angle}"><br>
-            <label>Elevation:</label><br>
+            {jog_buttons('m2')}
+            <h4>Elevation</h4>
             <input type="text" name="m1" value="{m1_angle}"><br>
-            <input type="submit" value="Rotate Motors"><br>
+            {jog_buttons('m1')}
+
+            <br><input type="submit" value="Rotate Motors"><br>
 
             <h3>Calibration</h3>
             <input type="submit" name="return_zero" value="Return to Zero"><br>
@@ -223,7 +233,7 @@ def serve_web(m1, m2):
             if "aim_team" in data and data.get("team_box", "").strip() != "":
                 aim_at_team(m1, m2, data["team_box"].strip())
 
-            # Motor control
+            # Manual motor control
             if "m1" in data and data["m1"].strip() != "":
                 try:
                     el = float(data["m1"])
@@ -238,11 +248,26 @@ def serve_web(m1, m2):
                     p.join()
                 except: pass
 
-            # Calibration buttons
+            # Jog buttons
+            if "m1_jog" in data:
+                try:
+                    delta = float(data["m1_jog"])
+                    p = m1.rotate(delta)
+                    p.join()
+                except: pass
+
+            if "m2_jog" in data:
+                try:
+                    delta = float(data["m2_jog"])
+                    p = m2.rotate(delta)
+                    p.join()
+                except: pass
+
+            # Calibration
             if "return_zero" in data: return_to_zero(m1, m2)
             if "save_zero" in data: save_zero(m1, m2)
 
-            # Laser button
+            # Laser
             if "laser" in data: test_laser()
 
         try:
