@@ -257,7 +257,7 @@ def serve_web(m1, m2):
             if "m1_jog" in data:
                 try:
                     delta = float(data["m1_jog"])
-                    p = m1.rotate(delta)
+                    p = m1.rotate(-delta)
                     p.join()
                 except:
                     pass
@@ -273,7 +273,7 @@ def serve_web(m1, m2):
             if "m1" in data and data["m1"].strip() != "":
                 try:
                     el = float(data["m1"])
-                    p = m1.goAngle(el)
+                    p = m1.goAngle(-el)
                     p.join()
                 except:
                     pass
