@@ -169,17 +169,17 @@ def web_page(m1_angle, m2_angle):
         <form action="/" method="POST">
 
             <h3>This Turret's Team Number</h3>
-            <input type="text" name="self_team" placeholder="Your team number"><br><br>
-            <input type="submit" name="set_self_team" value="Set This Turret's Team"><br><br>
+            <input type="text" name="self_team" placeholder="Your team number"><br>
+            <input type="submit" name="set_self_team" value="Set This Turret's Team"><br>
 
             <h3>Aim at Another Team</h3>
-            <input type="text" name="team_box" placeholder="Target team #"><br><br>
-            <input type="submit" name="aim_team" value="Aim at Team"><br><br>
+            <input type="text" name="team_box" placeholder="Target team #"><br>
+            <input type="submit" name="aim_team" value="Aim at Team"><br>
 
             <h3>Manual Motor Control</h3>
 
             <h4>Elevation (Motor 1)</h4>
-            <input type="text" name="m1" value="{m1_angle}"><br><br>
+            <input type="text" name="m1" value="{m1_angle}"><br>
 
             <button name="m1_jog" value="-90">-90°</button>
             <button name="m1_jog" value="-45">-45°</button>
@@ -192,10 +192,10 @@ def web_page(m1_angle, m2_angle):
             <button name="m1_jog" value="45">+45°</button>
             <button name="m1_jog" value="90">+90°</button>
 
-            <br><br><br>
+            <br>
 
             <h4>Azimuth (Motor 2)</h4>
-            <input type="text" name="m2" value="{m2_angle}"><br><br>
+            <input type="text" name="m2" value="{m2_angle}"><br>
 
             <button name="m2_jog" value="-90">-90°</button>
             <button name="m2_jog" value="-45">-45°</button>
@@ -208,16 +208,16 @@ def web_page(m1_angle, m2_angle):
             <button name="m2_jog" value="45">+45°</button>
             <button name="m2_jog" value="90">+90°</button>
 
-            <br><br><br>
+            <br>
 
-            <input type="submit" value="Rotate Motors"><br><br>
+            <input type="submit" value="Rotate Motors"><br>
 
             <h3>Calibration</h3>
-            <input type="submit" name="return_zero" value="Return to Zero"><br><br>
-            <input type="submit" name="save_zero" value="Save Current Position as Zero"><br><br>
+            <input type="submit" name="return_zero" value="Return to Zero"><br>
+            <input type="submit" name="save_zero" value="Save Current Position as Zero"><br>
 
             <h3>Laser</h3>
-            <input type="submit" name="laser" value="Test Laser (3s)"><br><br>
+            <input type="submit" name="laser" value="Test Laser (3s)"><br>
 
         </form>
     </body>
