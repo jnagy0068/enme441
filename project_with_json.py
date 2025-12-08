@@ -186,7 +186,6 @@ def web_page(m1_angle, m2_angle):
             <button name="m1_jog" value="-15">-15°</button>
             <button name="m1_jog" value="-5">-5°</button>
             <button name="m1_jog" value="-1">-1°</button>
-            <br><br>
             <button name="m1_jog" value="1">+1°</button>
             <button name="m1_jog" value="5">+5°</button>
             <button name="m1_jog" value="15">+15°</button>
@@ -203,7 +202,6 @@ def web_page(m1_angle, m2_angle):
             <button name="m2_jog" value="-15">-15°</button>
             <button name="m2_jog" value="-5">-5°</button>
             <button name="m2_jog" value="-1">-1°</button>
-            <br><br>
             <button name="m2_jog" value="1">+1°</button>
             <button name="m2_jog" value="5">+5°</button>
             <button name="m2_jog" value="15">+15°</button>
