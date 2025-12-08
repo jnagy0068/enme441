@@ -8,13 +8,16 @@ import RPi.GPIO as GPIO
 import requests
 from urllib.parse import parse_qs
 
+# --- GPIO Setup ---
 GPIO.setmode(GPIO.BCM)
 laser = 22
 GPIO.setup(laser, GPIO.OUT)
 GPIO.output(laser, GPIO.LOW)
 
+# --- Shared Memory for Stepper Shifter ---
 myArray = multiprocessing.Array('i', 2)
 
+# --- Load positions from IP ---
 positions = {}
 JSON_URL = "http://192.168.1.254:8000/positions.json"
 
@@ -32,11 +35,15 @@ def load_positions():
 
 load_positions()
 
+# --- Turret and Calibration Data ---
+calibration = {"az_offset": 0.0, "el_offset": 0.0}
+self_team = {"id": None}
 
+# --- Stepper Motor Class ---
 class Stepper:
-    seq = [0b0001, 0b0011, 0b0010, 0b0110, 0b0100, 0b1100, 0b1000, 0b1001]
-    delay = 500 
-    steps_per_degree = 4 * 1024 / 360
+    seq = [0b0001,0b0011,0b0010,0b0110,0b0100,0b1100,0b1000,0b1001]
+    delay = 500
+    steps_per_degree = 4*1024/360
 
     def __init__(self, shifter, lock, index):
         self.s = shifter
@@ -44,26 +51,22 @@ class Stepper:
         self.index = index
         self.angle = 0
         self.step_state = 0
-        self.shifter_bit_start = 4 * index
+        self.shifter_bit_start = 4*index
 
     def _sgn(self, x):
-        return 0 if x == 0 else int(abs(x) / x)
+        return 0 if x == 0 else int(abs(x)/x)
 
     def _step(self, direction):
         with self.lock:
             self.step_state = (self.step_state + direction) % 8
-
             myArray[self.index] &= ~(0b1111 << self.shifter_bit_start)
             myArray[self.index] |= (Stepper.seq[self.step_state] << self.shifter_bit_start)
-
             final = 0
             for val in myArray:
                 final |= val
-
             self.s.shiftByte(final)
-
-        self.angle = (self.angle + direction / Stepper.steps_per_degree) % 360
-        time.sleep(Stepper.delay / 1e6)
+        self.angle = (self.angle + direction/Stepper.steps_per_degree) % 360
+        time.sleep(Stepper.delay/1e6)
 
     def _rotate(self, delta):
         direction = self._sgn(delta)
@@ -83,51 +86,102 @@ class Stepper:
     def zero(self):
         self.angle = 0
 
-
+# --- Laser Function ---
 def test_laser():
     GPIO.output(laser, GPIO.HIGH)
     time.sleep(3)
     GPIO.output(laser, GPIO.LOW)
 
+# --- Calibration Functions ---
+def save_zero(m1, m2):
+    calibration["el_offset"] = -m1.angle
+    calibration["az_offset"] = -m2.angle
+    print("Saved zero position:", calibration)
 
+def return_to_zero(m1, m2):
+    target_el = calibration["el_offset"]
+    target_az = calibration["az_offset"]
+    print("Returning to zero...")
+    p1 = m1.goAngle(target_el)
+    p2 = m2.goAngle(target_az)
+    p1.join()
+    p2.join()
+
+# --- Aim at Team Function ---
+def aim_at_team(m1, m2, target_team):
+    if self_team["id"] is None:
+        print("ERROR: Self team number not set.")
+        return
+    if target_team not in positions.get("turrets", {}):
+        print("Team not found in positions:", target_team)
+        return
+
+    st = self_team["id"]
+    if st not in positions["turrets"]:
+        print("ERROR: This turret's team number not in positions:", st)
+        return
+
+    th_self = positions["turrets"][st]["theta"]
+    th_tgt = positions["turrets"][target_team]["theta"]
+
+    rel_theta = th_tgt - th_self
+    az = rel_theta * 180.0 / 3.1415926535
+    el = 0
+
+    az += calibration["az_offset"]
+    el += calibration["el_offset"]
+
+    print(f"Aiming at team {target_team}: az={az:.2f}, el={el:.2f}")
+    p1 = m1.goAngle(el)
+    p2 = m2.goAngle(az)
+    p1.join()
+    p2.join()
+
+# --- POST Parsing ---
 def parsePOSTdata(data):
-    idx = data.find('\r\n\r\n')
+    idx = data.find("\r\n\r\n")
     if idx == -1:
         return {}
     post = data[idx+4:]
     parsed = parse_qs(post, keep_blank_values=True)
-    simple = {k: v[0] for k, v in parsed.items()}
-    return simple
+    return {k:v[0] for k,v in parsed.items()}
 
-
+# --- Web Page ---
 def web_page(m1_angle, m2_angle):
     html = f"""
     <html>
-    <head><title>Stepper Control</title></head>
+    <head><title>Laser Turret</title></head>
     <body style="font-family: Arial; text-align:center; margin-top:40px;">
-        <h2>Stepper Motor Angle Control</h2>
-
+        <h2>Laser Turret Control</h2>
         <form action="/" method="POST">
-            <label>Type Team Number:</label><br>
-            <input type="text" name="team" placeholder="Enter team number"><br><br>
-            <input type="submit" value="Get Position"><br><br>
+            <h3>This Turret's Team Number</h3>
+            <input type="text" name="self_team" placeholder="Your team number"><br>
+            <input type="submit" name="set_self_team" value="Set This Turret's Team"><br>
 
-            <label>Motor 1 Angle (degrees):</label><br>
-            <input type="text" name="m1" value="{m1_angle}"><br><br>
+            <h3>Aim at Another Team</h3>
+            <input type="text" name="team_box" placeholder="Target team #"><br>
+            <input type="submit" name="aim_team" value="Aim at Team"><br>
 
-            <label>Motor 2 Angle (degrees):</label><br>
-            <input type="text" name="m2" value="{m2_angle}"><br><br>
+            <h3>Manual Motor Control</h3>
+            <label>Azimuth:</label><br>
+            <input type="text" name="m2" value="{m2_angle}"><br>
+            <label>Elevation:</label><br>
+            <input type="text" name="m1" value="{m1_angle}"><br>
+            <input type="submit" value="Rotate Motors"><br>
 
-            <input type="submit" value="Rotate Motors"><br><br>
+            <h3>Calibration</h3>
+            <input type="submit" name="return_zero" value="Return to Zero"><br>
+            <input type="submit" name="save_zero" value="Save Current Position as Zero"><br>
 
-            <!-- FIXED BUTTON -->
-            <input type="submit" name="laser" value="Test Laser (3s)">
+            <h3>Laser</h3>
+            <input type="submit" name="laser" value="Test Laser (3s)"><br>
         </form>
     </body>
     </html>
     """
-    return bytes(html, 'utf-8')
+    return bytes(html, "utf-8")
 
+# --- Web Server ---
 def serve_web(m1, m2):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -139,64 +193,54 @@ def serve_web(m1, m2):
         conn, addr = s.accept()
         try:
             msg = conn.recv(4096).decode(errors='ignore')
-        except Exception as e:
-            print("Failed to read request:", e)
+        except:
             conn.close()
             continue
 
         if msg.startswith("POST"):
             data = parsePOSTdata(msg)
 
-            # team input (text)
-            if "team" in data and data["team"].strip() != "":
-                t = data["team"].strip()
-                if t in positions.get("turrets", {}):
-                    try:
-                        r = positions["turrets"][t]["r"]
-                        theta = positions["turrets"][t]["theta"]
-                        print(f"\nTeam {t} Selected:")
-                        print(f"Radius = {r}")
-                        print(f"Theta  = {theta}\n")
-                    except Exception as e:
-                        print(f"Error reading turret data for team {t}: {e}")
-                else:
-                    print(f"Team '{t}' not found in positions. Available keys: {list(positions.get('turrets', {}).keys())}")
+            # Set self team
+            if "set_self_team" in data and data.get("self_team", "").strip() != "":
+                self_team["id"] = data["self_team"].strip()
+                print("This turret's team set to:", self_team["id"])
 
-            # motor 1 control
+            # Aim at another team
+            if "aim_team" in data and data.get("team_box", "").strip() != "":
+                aim_at_team(m1, m2, data["team_box"].strip())
+
+            # Motor control
             if "m1" in data and data["m1"].strip() != "":
                 try:
-                    m1_target = float(data["m1"])
-                    p = m1.goAngle(m1_target)
+                    el = float(data["m1"])
+                    p = m1.goAngle(el)
                     p.join()
-                except Exception as e:
-                    print("Error rotating motor 1:", e)
+                except: pass
 
-            # motor 2 control
             if "m2" in data and data["m2"].strip() != "":
                 try:
-                    m2_target = float(data["m2"])
-                    p = m2.goAngle(m2_target)
+                    az = float(data["m2"])
+                    p = m2.goAngle(az)
                     p.join()
-                except Exception as e:
-                    print("Error rotating motor 2:", e)
+                except: pass
 
-            # laser test button
-            if "laser" in data:
-                test_()
+            # Calibration buttons
+            if "return_zero" in data: return_to_zero(m1, m2)
+            if "save_zero" in data: save_zero(m1, m2)
 
-        # respond with the page showing current motor angles
+            # Laser button
+            if "laser" in data: test_laser()
+
         try:
             response = web_page(m1.angle, m2.angle)
-            conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n')
+            conn.send(b"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n")
             conn.sendall(response)
-        except Exception as e:
-            print("Failed to send response:", e)
+        except: pass
 
         conn.close()
 
-
-if __name__ == '__main__':
-    # create shifter and steppers as before
+# --- Main ---
+if __name__ == "__main__":
     s = Shifter(23, 24, 25)
     lock1 = multiprocessing.Lock()
     lock2 = multiprocessing.Lock()
@@ -207,7 +251,6 @@ if __name__ == '__main__':
     m1.zero()
     m2.zero()
 
-    # start web server thread
     t = threading.Thread(target=serve_web, args=(m1, m2), daemon=True)
     t.start()
 
