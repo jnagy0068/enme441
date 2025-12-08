@@ -178,23 +178,8 @@ def web_page(m1_angle, m2_angle):
 
             <h3>Manual Motor Control</h3>
 
-            <h4>Elevation (Motor 1)</h4>
-            <input type="text" name="m1" value="{m1_angle}"><br>
-
-            <button name="m1_jog" value="-90">-90°</button>
-            <button name="m1_jog" value="-45">-45°</button>
-            <button name="m1_jog" value="-15">-15°</button>
-            <button name="m1_jog" value="-5">-5°</button>
-            <button name="m1_jog" value="-1">-1°</button>
-            <button name="m1_jog" value="1">+1°</button>
-            <button name="m1_jog" value="5">+5°</button>
-            <button name="m1_jog" value="15">+15°</button>
-            <button name="m1_jog" value="45">+45°</button>
-            <button name="m1_jog" value="90">+90°</button>
-
-            <br>
-
-            <h4>Azimuth (Motor 2)</h4>
+            
+            <h4>Azimuth</h4>
             <input type="text" name="m2" value="{m2_angle}"><br>
 
             <button name="m2_jog" value="-90">-90°</button>
@@ -207,6 +192,22 @@ def web_page(m1_angle, m2_angle):
             <button name="m2_jog" value="15">+15°</button>
             <button name="m2_jog" value="45">+45°</button>
             <button name="m2_jog" value="90">+90°</button>
+
+			<br>
+            
+			<h4>Elevation</h4>
+            <input type="text" name="m1" value="{m1_angle}"><br>
+
+            <button name="m1_jog" value="-90">-90°</button>
+            <button name="m1_jog" value="-45">-45°</button>
+            <button name="m1_jog" value="-15">-15°</button>
+            <button name="m1_jog" value="-5">-5°</button>
+            <button name="m1_jog" value="-1">-1°</button>
+            <button name="m1_jog" value="1">+1°</button>
+            <button name="m1_jog" value="5">+5°</button>
+            <button name="m1_jog" value="15">+15°</button>
+            <button name="m1_jog" value="45">+45°</button>
+            <button name="m1_jog" value="90">+90°</button>
 
             <br>
 
