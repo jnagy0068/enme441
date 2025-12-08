@@ -88,7 +88,7 @@ class Stepper:
         self.angle = 0
 
 
-def test_():
+def test_laser():
     GPIO.output(laser, GPIO.HIGH)
     time.sleep(3)
     GPIO.output(laser, GPIO.LOW)
