@@ -7,6 +7,7 @@ from shifter import Shifter
 import RPi.GPIO as GPIO
 import requests
 from urllib.parse import parse_qs
+import math
 
 # --- GPIO Setup ---
 GPIO.setmode(GPIO.BCM)
@@ -107,7 +108,7 @@ def return_to_zero(m1, m2):
     p1.join()
     p2.join()
 
-# --- Aim at Team Function ---
+# --- Correct Aim at Team for Circumference ---
 def aim_at_team(m1, m2, target_team):
     if self_team["id"] is None:
         print("ERROR: Self team number not set.")
@@ -121,19 +122,29 @@ def aim_at_team(m1, m2, target_team):
         print("ERROR: This turret's team number not in positions:", st)
         return
 
+    # Get turret positions in radians
     th_self = positions["turrets"][st]["theta"]
     th_tgt = positions["turrets"][target_team]["theta"]
 
-    rel_theta = th_tgt - th_self
-    az = rel_theta * 180.0 / 3.1415926535
-    el = 0
+    # Cartesian positions on the circle (radius arbitrary since it cancels)
+    R = 1.0
+    x_self = R * math.cos(th_self)
+    y_self = R * math.sin(th_self)
+    x_tgt  = R * math.cos(th_tgt)
+    y_tgt  = R * math.sin(th_tgt)
 
-    az += calibration["az_offset"]
-    el += calibration["el_offset"]
+    # Angle relative to turret's current pointing (toward center)
+    az_rad = math.atan2(y_tgt - y_self, x_tgt - x_self) - (th_self + math.pi)
+    az_deg = az_rad * 180.0 / math.pi
 
-    print(f"Aiming at team {target_team}: az={az:.2f}, el={el:.2f}")
-    p1 = m1.goAngle(el)
-    p2 = m2.goAngle(az)
+    # Apply calibration offsets
+    az_deg += calibration["az_offset"]
+    el_deg = calibration["el_offset"]
+
+    print(f"Aiming at team {target_team}: az={az_deg:.2f}, el={el_deg:.2f}")
+
+    p1 = m1.goAngle(el_deg)
+    p2 = m2.goAngle(az_deg)
     p1.join()
     p2.join()
 
@@ -245,8 +256,8 @@ if __name__ == "__main__":
     lock1 = multiprocessing.Lock()
     lock2 = multiprocessing.Lock()
 
-    m1 = Stepper(s, lock1, 0)
-    m2 = Stepper(s, lock2, 1)
+    m1 = Stepper(s, lock1, 0)  # elevation
+    m2 = Stepper(s, lock2, 1)  # azimuth
 
     m1.zero()
     m2.zero()
@@ -259,3 +270,4 @@ if __name__ == "__main__":
             time.sleep(1)
     except KeyboardInterrupt:
         print("Exiting.")
+
