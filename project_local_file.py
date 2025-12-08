@@ -9,6 +9,10 @@ import os
 from urllib.parse import parse_qs
 import math
 
+# z-positions
+turret_height_self = 0.2     # your turret laser height
+turret_height_other = 0.0    # all other turrets' laser height
+
 # --- GPIO Setup ---
 GPIO.setmode(GPIO.BCM)
 laser = 22
@@ -125,29 +129,42 @@ def aim_at_team(m1, m2, target_team):
         print("ERROR: This turret's team number not in positions:", st)
         return
 
-    # Get turret positions in radians
+    # --- Positions in radians ---
     th_self = positions["turrets"][st]["theta"]
     th_tgt  = positions["turrets"][target_team]["theta"]
 
-    # Cartesian positions on the circle
+    # --- Cartesian positions on the circle (radius = 1) ---
     R = 1.0
     x_self = R * math.cos(th_self)
     y_self = R * math.sin(th_self)
     x_tgt  = R * math.cos(th_tgt)
     y_tgt  = R * math.sin(th_tgt)
 
-    # Angle relative to turret's current pointing (toward center)
-    az_rad = math.atan2(y_tgt - y_self, x_tgt - x_self) - (th_self + math.pi)
+    # --- Z positions from turret height variables ---
+    z_self = turret_height_self
+    z_tgt  = turret_height_other
 
-    # FIX: flip the sign to match manual control convention
-    az_deg = -az_rad * 180.0 / math.pi
+    # --- Compute delta vector from turret to target ---
+    dx = x_tgt - x_self
+    dy = y_tgt - y_self
+    dz = z_tgt - z_self
 
-    # Apply calibration offsets
+    # --- Azimuth: horizontal rotation relative to turret pointing toward center ---
+    az_rad = math.atan2(dy, dx) - (th_self + math.pi)
+    az_deg = -az_rad * 180.0 / math.pi   # flip sign to match manual control
+
+    # --- Elevation: vertical rotation based on dz and horizontal distance ---
+    horizontal_dist = math.sqrt(dx**2 + dy**2)
+    el_rad = math.atan2(dz, horizontal_dist)
+    el_deg = el_rad * 180.0 / math.pi
+
+    # --- Apply calibration offsets ---
     az_deg += calibration["az_offset"]
-    el_deg = calibration["el_offset"]
+    el_deg += calibration["el_offset"]
 
     print(f"Aiming at team {target_team}: az={az_deg:.2f}, el={el_deg:.2f}")
 
+    # --- Rotate motors ---
     p1 = m1.goAngle(el_deg)
     p2 = m2.goAngle(az_deg)
     p1.join()
