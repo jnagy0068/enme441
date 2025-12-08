@@ -17,6 +17,8 @@ myArray = multiprocessing.Array('i', 2)
 
 positions = {}
 calibration = {"az_offset": 0.0, "el_offset": 0.0}
+self_team = {"id": None}  # NEW — user-entered team number for this turret
+
 
 def load_positions():
     global positions
@@ -40,7 +42,7 @@ load_positions()
 
 class Stepper:
     seq = [0b0001, 0b0011, 0b0010, 0b0110, 0b0100, 0b1100, 0b1000, 0b1001]
-    delay = 500 
+    delay = 500
     steps_per_degree = 4 * 1024 / 360
 
     def __init__(self, shifter, lock, index):
@@ -95,37 +97,50 @@ def test_laser():
     GPIO.output(laser, GPIO.LOW)
 
 
-# Save current orientation as zero
 def save_zero(m1, m2):
-    calibration["el_offset"] = -m1.angle  # elevation axis
-    calibration["az_offset"] = -m2.angle  # azimuth axis
+    calibration["el_offset"] = -m1.angle
+    calibration["az_offset"] = -m2.angle
     print("Saved zero position:", calibration)
 
 
-# Aim turret at a target team
-def aim_at_team(m1, m2, team):
-    if team not in positions.get("turrets", {}):
-        print("Team not found:", team)
+def aim_at_team(m1, m2, target_team):
+    if self_team["id"] is None:
+        print("ERROR: Self team number not set.")
         return
 
-    r = positions["turrets"][team]["r"]
-    th = positions["turrets"][team]["theta"]  # radians
+    if target_team not in positions.get("turrets", {}):
+        print("Team not found in JSON:", target_team)
+        return
 
-    # Convert to degrees
-    az = th * 180.0 / 3.1415926535  # m2
-    el = 0  # flat field (m1)
+    st = self_team["id"]
+    if st not in positions["turrets"]:
+        print("ERROR: This turret's team number not in JSON:", st)
+        return
+
+    # Load our own and target coordinates
+    r_self = positions["turrets"][st]["r"]
+    th_self = positions["turrets"][st]["theta"]
+
+    r_tgt = positions["turrets"][target_team]["r"]
+    th_tgt = positions["turrets"][target_team]["theta"]
+
+    # Compute RELATIVE azimuth angle
+    rel_theta = (th_tgt - th_self)
+    az = rel_theta * 180.0 / 3.1415926535
+
+    # Field is flat → elevation = zero
+    el = 0
 
     # Apply calibration offsets
     az += calibration["az_offset"]
     el += calibration["el_offset"]
 
-    print(f"Aiming at team {team}: az={az:.1f}°, el={el:.1f}°")
+    print(f"Aiming at team {target_team}: az={az:.2f}, el={el:.2f}")
 
-    p_el = m1.goAngle(el)
-    p_az = m2.goAngle(az)
-    p_el.join()
-    p_az.join()
-
+    p1 = m1.goAngle(el)
+    p2 = m2.goAngle(az)
+    p1.join()
+    p2.join()
 
 
 def parsePOSTdata(data):
@@ -141,19 +156,24 @@ def parsePOSTdata(data):
 def web_page(m1_angle, m2_angle):
     html = f"""
     <html>
-    <head><title>Stepper Control</title></head>
+    <head><title>Laser Turret</title></head>
     <body style="font-family: Arial; text-align:center; margin-top:40px;">
+
         <h2>Laser Turret Control</h2>
 
         <form action="/" method="POST">
 
-            <h3>Enter Team Number</h3>
-            <input type="text" name="team_box" placeholder="Team #"><br><br>
+            <h3>This Turret's Team Number</h3>
+            <input type="text" name="self_team" placeholder="Your team number"><br><br>
+            <input type="submit" name="set_self_team" value="Set This Turret's Team"><br><br>
+
+            <h3>Aim at Another Team</h3>
+            <input type="text" name="team_box" placeholder="Target team #"><br><br>
             <input type="submit" name="aim_team" value="Aim at Team"><br><br>
 
             <h3>Manual Motor Control</h3>
-            Elevation (Motor 1): <input type="text" name="m1" value="{m1_angle}"><br><br>
-            Azimuth (Motor 2): <input type="text" name="m2" value="{m2_angle}"><br><br>
+            Elevation (m1): <input type="text" name="m1" value="{m1_angle}"><br><br>
+            Azimuth (m2):   <input type="text" name="m2" value="{m2_angle}"><br><br>
             <input type="submit" value="Rotate Motors"><br><br>
 
             <h3>Calibration</h3>
@@ -166,7 +186,8 @@ def web_page(m1_angle, m2_angle):
     </body>
     </html>
     """
-    return bytes(html, 'utf-8')
+
+    return bytes(html, "utf-8")
 
 
 def serve_web(m1, m2):
@@ -181,24 +202,25 @@ def serve_web(m1, m2):
         try:
             msg = conn.recv(4096).decode(errors='ignore')
         except Exception as e:
-            print("Failed to read request:", e)
             conn.close()
             continue
 
         if msg.startswith("POST"):
             data = parsePOSTdata(msg)
 
-            # Save zero
-            if "save_zero" in data:
-                save_zero(m1, m2)
+            # Set this turret's own team number
+            if "set_self_team" in data:
+                if data.get("self_team", "").strip() != "":
+                    self_team["id"] = data["self_team"].strip()
+                    print("This turret's team set to:", self_team["id"])
 
-            # Aim at team
+            # Aim at another team
             if "aim_team" in data:
                 t = data.get("team_box", "").strip()
                 if t != "":
                     aim_at_team(m1, m2, t)
 
-            # Motor 1 (elevation)
+            # Manual elevation control
             if "m1" in data and data["m1"].strip() != "":
                 try:
                     el = float(data["m1"])
@@ -207,7 +229,7 @@ def serve_web(m1, m2):
                 except:
                     pass
 
-            # Motor 2 (azimuth)
+            # Manual azimuth control
             if "m2" in data and data["m2"].strip() != "":
                 try:
                     az = float(data["m2"])
@@ -216,20 +238,23 @@ def serve_web(m1, m2):
                 except:
                     pass
 
-            # Laser Fire
+            # Save zero calibration
+            if "save_zero" in data:
+                save_zero(m1, m2)
+
+            # Fire laser
             if "laser" in data:
                 test_laser()
 
-        # Respond HTML
+        # Send page
         try:
             response = web_page(m1.angle, m2.angle)
             conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n')
             conn.sendall(response)
-        except Exception as e:
-            print("Failed to send response:", e)
+        except:
+            pass
 
         conn.close()
-
 
 
 if __name__ == '__main__':
