@@ -1,17 +1,21 @@
 import time
-import multiprocessing
-import socket
 import threading
+import socket
 import json
 from shifter import Shifter
 import RPi.GPIO as GPIO
 import os
 from urllib.parse import parse_qs
 import math
+import multiprocessing
 
-# z-positions (centimeters)
-turret_height_self = 3.0     # your turret laser height
-turret_height_other = 0.0    # all other turrets' laser height
+# ---------------- Config / Units (centimeters)
+turret_height_self = 3.0     # your turret laser height (cm)
+turret_height_other = 0.0    # all other turrets' laser height (cm)
+
+# If your elevation motor's positive direction is opposite of "math positive up",
+# set this True to flip automatic elevation sign.
+ELEVATION_FLIP = False
 
 # --- GPIO Setup ---
 GPIO.setmode(GPIO.BCM)
@@ -19,7 +23,7 @@ laser = 22
 GPIO.setup(laser, GPIO.OUT)
 GPIO.output(laser, GPIO.LOW)
 
-# --- Shared Memory for Stepper Shifter ---
+# --- Shared Memory for Shifter bits (still fine for threading) ---
 myArray = multiprocessing.Array('i', 2)
 
 # --- Load positions from local JSON ---
@@ -47,19 +51,20 @@ load_positions()
 calibration = {"az_offset": 0.0, "el_offset": 0.0}
 self_team = {"id": None}
 
-# --- Stepper Motor Class ---
+# --- Stepper Motor Class (uses threads so .angle is accurate in main process) ---
 class Stepper:
     seq = [0b0001,0b0011,0b0010,0b0110,0b0100,0b1100,0b1000,0b1001]
-    delay = 500
+    delay = 500                         # microsecond delay used previously
     steps_per_degree = 4*1024/360
 
     def __init__(self, shifter, lock, index):
         self.s = shifter
         self.lock = lock
         self.index = index
-        self.angle = 0
+        self.angle = 0.0
         self.step_state = 0
         self.shifter_bit_start = 4*index
+        self._thread = None
 
     def _sgn(self, x):
         return 0 if x == 0 else int(abs(x)/x)
@@ -73,8 +78,9 @@ class Stepper:
             for val in myArray:
                 final |= val
             self.s.shiftByte(final)
-        self.angle = (self.angle + direction/Stepper.steps_per_degree) % 360
-        time.sleep(Stepper.delay/1e6)
+        # update angle in same process (degrees)
+        self.angle = (self.angle + direction/Stepper.steps_per_degree) % 360.0
+        time.sleep(Stepper.delay / 1e6)
 
     def _rotate(self, delta):
         direction = self._sgn(delta)
@@ -82,17 +88,20 @@ class Stepper:
         for _ in range(steps):
             self._step(direction)
 
+    # start a thread (not a process) so angle stays updated in parent
     def rotate(self, delta):
-        p = multiprocessing.Process(target=self._rotate, args=(delta,))
-        p.start()
-        return p
+        t = threading.Thread(target=self._rotate, args=(delta,), daemon=True)
+        t.start()
+        self._thread = t
+        return t
 
     def goAngle(self, target):
-        delta = (target - self.angle + 540) % 360 - 180
+        # compute smallest rotation to target
+        delta = (target - self.angle + 540.0) % 360.0 - 180.0
         return self.rotate(delta)
 
     def zero(self):
-        self.angle = 0
+        self.angle = 0.0
 
 # --- Laser Function ---
 def test_laser():
@@ -102,20 +111,22 @@ def test_laser():
 
 # --- Calibration Functions ---
 def save_zero(m1, m2):
+    # Save offsets so that calling return_to_zero will go to the current pose
     calibration["el_offset"] = -m1.angle
     calibration["az_offset"] = -m2.angle
     print("Saved zero position:", calibration)
+    print(f"Saved angles: m1.angle={m1.angle:.3f}, m2.angle={m2.angle:.3f}")
 
 def return_to_zero(m1, m2):
-    target_el = calibration["el_offset"]
-    target_az = calibration["az_offset"]
-    print("Returning to zero...")
+    target_el = calibration.get("el_offset", 0.0)
+    target_az = calibration.get("az_offset", 0.0)
+    print("Returning to zero... target_el=", target_el, " target_az=", target_az)
     p1 = m1.goAngle(target_el)
     p2 = m2.goAngle(target_az)
     p1.join()
     p2.join()
 
-# --- Correct Aim at Team for Circumference ---
+# --- Correct Aim at Team for Circumference with center-zero elevation compensation ---
 def aim_at_team(m1, m2, target_team):
     if self_team["id"] is None:
         print("ERROR: Self team number not set.")
@@ -129,43 +140,65 @@ def aim_at_team(m1, m2, target_team):
         print("ERROR: This turret's team number not in positions:", st)
         return
 
-    # --- Positions in radians ---
-    th_self = positions["turrets"][st]["theta"]
-    th_tgt  = positions["turrets"][target_team]["theta"]
+    # read r and theta from JSON (assume units consistent e.g. cm)
+    r_self  = float(positions["turrets"][st]["r"])
+    th_self = float(positions["turrets"][st]["theta"])
+    r_tgt   = float(positions["turrets"][target_team]["r"])
+    th_tgt  = float(positions["turrets"][target_team]["theta"])
 
-    # --- Cartesian positions on the circle (radius = 1) ---
-    R = 1.0
-    x_self = R * math.cos(th_self)
-    y_self = R * math.sin(th_self)
-    x_tgt  = R * math.cos(th_tgt)
-    y_tgt  = R * math.sin(th_tgt)
+    # Cartesian positions in same unit (cm)
+    x_self = r_self * math.cos(th_self)
+    y_self = r_self * math.sin(th_self)
+    x_tgt  = r_tgt  * math.cos(th_tgt)
+    y_tgt  = r_tgt  * math.sin(th_tgt)
 
-    # --- Z positions from turret height variables ---
-    z_self = turret_height_self
-    z_tgt  = turret_height_other
+    # heights (cm)
+    z_self = float(turret_height_self)
+    z_tgt  = float(turret_height_other)
 
-    # --- Compute delta vector from turret to target ---
+    # vector from turret to target
     dx = x_tgt - x_self
     dy = y_tgt - y_self
     dz = z_tgt - z_self
 
-    # --- Azimuth: horizontal rotation relative to turret pointing toward center ---
-    az_rad = math.atan2(dy, dx) - (th_self + math.pi)
-    az_deg = -az_rad * 180.0 / math.pi   # flip sign to match manual control
-    az_deg = (az_deg + 180) % 360 - 180
+    horizontal_dist = math.hypot(dx, dy)  # ground-plane distance (cm)
 
-    # --- Elevation: vertical rotation based on dz and horizontal distance ---
-    horizontal_dist = math.sqrt(dx**2 + dy**2)
-    el_rad = math.atan2(dz, horizontal_dist)
-    el_deg = -el_rad * 180.0 / math.pi
+    # Absolute elevation (wrt horizontal plane) to the target
+    el_target_abs = math.atan2(dz, horizontal_dist)   # radians
 
-    # --- Apply calibration offsets ---
-    az_deg += calibration["az_offset"]
-    el_deg += calibration["el_offset"]
+    # Absolute elevation to the center (this is your physical zero)
+    dz_center = 0.0 - z_self
+    dist_to_center = r_self
+    el_center_abs = math.atan2(dz_center, dist_to_center)  # radians
 
-    print(f"Aiming at team {target_team}: az={az_deg:.2f}, el={el_deg:.2f}")
+    # Elevation command = difference from center-zero
+    el_rel_rad = el_target_abs - el_center_abs
+    el_deg = el_rel_rad * 180.0 / math.pi
 
-    # --- Rotate motors ---
+    # optionally flip elevation sign to match motor direction if needed
+    if ELEVATION_FLIP:
+        el_deg = -el_deg
+
+    # Azimuth: absolute azimuth to target in world coords
+    az_world = math.atan2(dy, dx)
+    turret_facing = th_self + math.pi   # turret zero points to center
+    az_rel = az_world - turret_facing
+    az_deg = -az_rel * 180.0 / math.pi  # NEGATE to match manual controls convention
+
+    # normalize azimuth to [-180, 180]
+    az_deg = (az_deg + 180.0) % 360.0 - 180.0
+
+    # Apply calibration offsets saved with save_zero()
+    az_deg += calibration.get("az_offset", 0.0)
+    el_deg += calibration.get("el_offset", 0.0)
+
+    print(
+        f"Aiming at team {target_team}: az={az_deg:.2f}°, el={el_deg:.2f}° | "
+        f"horiz_dist={horizontal_dist:.2f} cm, dz={dz:.2f} cm, "
+        f"el_target_abs={el_target_abs*180/math.pi:.4f}°, el_center_abs={el_center_abs*180/math.pi:.4f}°"
+    )
+
+    # Rotate motors (elevation = m1, azimuth = m2)
     p1 = m1.goAngle(el_deg)
     p2 = m2.goAngle(az_deg)
     p1.join()
@@ -180,7 +213,7 @@ def parsePOSTdata(data):
     parsed = parse_qs(post, keep_blank_values=True)
     return {k:v[0] for k,v in parsed.items()}
 
-# --- Web Page with Manual Jog Buttons ---
+# --- Web Page with Manual Jog Buttons and current-angle display ---
 def web_page(m1_angle, m2_angle):
     def jog_buttons(name):
         buttons = [-90, -45, -15, -5, -1, 1, 5, 15, 45, 90]
@@ -192,8 +225,16 @@ def web_page(m1_angle, m2_angle):
     html = f"""
     <html>
     <head><title>Laser Turret</title></head>
-    <body style="font-family: Arial; text-align:center; margin-top:40px;">
+    <body style="font-family: Arial; text-align:center; margin-top:20px;">
         <h2>Laser Turret Control</h2>
+
+        <div>
+            <strong>Current angles:</strong>
+            <div>Elevation (m1): {m1_angle:.2f}°</div>
+            <div>Azimuth (m2): {m2_angle:.2f}°</div>
+        </div>
+        <hr>
+
         <form action="/" method="POST">
             <h3>This Turret's Team Number</h3>
             <input type="text" name="self_team" placeholder="Your team number"><br>
@@ -223,7 +264,7 @@ def web_page(m1_angle, m2_angle):
     </body>
     </html>
     """
-    return bytes(html, "utf-8")
+    return bytes(html, "utf-8')
 
 # --- Web Server ---
 def serve_web(m1, m2):
@@ -236,7 +277,7 @@ def serve_web(m1, m2):
     while True:
         conn, addr = s.accept()
         try:
-            msg = conn.recv(4096).decode(errors='ignore')
+            msg = conn.recv(8192).decode(errors='ignore')
         except:
             conn.close()
             continue
@@ -259,14 +300,16 @@ def serve_web(m1, m2):
                     el = float(data["m1"])
                     p = m1.goAngle(el)
                     p.join()
-                except: pass
+                except Exception as e:
+                    print("m1 manual error:", e)
 
             if "m2" in data and data["m2"].strip() != "":
                 try:
                     az = float(data["m2"])
                     p = m2.goAngle(az)
                     p.join()
-                except: pass
+                except Exception as e:
+                    print("m2 manual error:", e)
 
             # Jog buttons
             if "m1_jog" in data:
@@ -274,35 +317,41 @@ def serve_web(m1, m2):
                     delta = float(data["m1_jog"])
                     p = m1.rotate(delta)
                     p.join()
-                except: pass
+                except Exception as e:
+                    print("m1_jog error:", e)
 
             if "m2_jog" in data:
                 try:
                     delta = float(data["m2_jog"])
                     p = m2.rotate(delta)
                     p.join()
-                except: pass
+                except Exception as e:
+                    print("m2_jog error:", e)
 
             # Calibration
-            if "return_zero" in data: return_to_zero(m1, m2)
-            if "save_zero" in data: save_zero(m1, m2)
+            if "return_zero" in data:
+                return_to_zero(m1, m2)
+            if "save_zero" in data:
+                save_zero(m1, m2)
 
             # Laser
-            if "laser" in data: test_laser()
+            if "laser" in data:
+                test_laser()
 
         try:
             response = web_page(m1.angle, m2.angle)
             conn.send(b"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n")
             conn.sendall(response)
-        except: pass
+        except Exception as e:
+            print("Failed sending response:", e)
 
         conn.close()
 
 # --- Main ---
 if __name__ == "__main__":
     s = Shifter(23, 24, 25)
-    lock1 = multiprocessing.Lock()
-    lock2 = multiprocessing.Lock()
+    lock1 = threading.Lock()
+    lock2 = threading.Lock()
 
     m1 = Stepper(s, lock1, 0)  # elevation
     m2 = Stepper(s, lock2, 1)  # azimuth
