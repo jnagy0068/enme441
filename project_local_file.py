@@ -317,60 +317,73 @@ def serve_web(m1, m2):
 
         if msg.startswith("POST"):
             data = parsePOSTdata(msg)
-
-            # Set self team
+        
+            # -----------------------------
+            # 1. Set self team
+            # -----------------------------
             if "set_self_team" in data and data.get("self_team", "").strip() != "":
                 self_team["id"] = data["self_team"].strip()
                 print("This turret's team set to:", self_team["id"])
-
-            # Aim at another team
+        
+            # -----------------------------
+            # 2. Aim at another team
+            # -----------------------------
             if "aim_team" in data and data.get("team_box", "").strip() != "":
                 aim_at_team(m1, m2, data["team_box"].strip())
-
-            # Manual motor control
-            if "m1" in data and data["m1"].strip() != "":
-                try:
-                    el = float(data["m1"])
-                    # manual commands are relative to zero_positions
-                    tgt = zero_positions.get("m1", 0.0) + el
-                    p = m1.goAngle(tgt)
-                    p.join()
-                except Exception as e:
-                    print("m1 manual error:", e)
-
-            if "m2" in data and data["m2"].strip() != "":
-                try:
-                    az = float(data["m2"])
-                    tgt = zero_positions.get("m2", 0.0) + az
-                    p = m2.goAngle(tgt)
-                    p.join()
-                except Exception as e:
-                    print("m2 manual error:", e)
-
-            # Jog buttons (these are relative deltas)
+        
+            # -----------------------------
+            # 3. Jog buttons (rotate by delta)
+            # -----------------------------
             if "m1_jog" in data:
                 try:
                     delta = float(data["m1_jog"])
                     p = m1.rotate(delta)
                     p.join()
-                except Exception as e:
-                    print("m1_jog error:", e)
-
+                except:
+                    pass
+        
             if "m2_jog" in data:
                 try:
                     delta = float(data["m2_jog"])
                     p = m2.rotate(delta)
                     p.join()
-                except Exception as e:
-                    print("m2_jog error:", e)
-
-            # Calibration / Zero
+                except:
+                    pass
+        
+            # -----------------------------
+            # 4. Manual absolute control ONLY when clicking "Rotate Motors"
+            # -----------------------------
+            if any(v == "Rotate Motors" for v in data.values()):
+                # elevation setpoint
+                if "m1" in data and data["m1"].strip() != "":
+                    try:
+                        el = float(data["m1"])
+                        p = m1.goAngle(el)
+                        p.join()
+                    except:
+                        pass
+        
+                # azimuth setpoint
+                if "m2" in data and data["m2"].strip() != "":
+                    try:
+                        az = float(data["m2"])
+                        p = m2.goAngle(az)
+                        p.join()
+                    except:
+                        pass
+        
+            # -----------------------------
+            # 5. Calibration
+            # -----------------------------
             if "return_zero" in data:
                 return_to_zero(m1, m2)
+        
             if "save_zero" in data:
                 save_zero(m1, m2)
-
-            # Laser
+        
+            # -----------------------------
+            # 6. Laser test (NO motor movement)
+            # -----------------------------
             if "laser" in data:
                 test_laser()
 
