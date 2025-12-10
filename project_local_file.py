@@ -264,7 +264,7 @@ def web_page(m1_angle, m2_angle):
     </body>
     </html>
     """
-    return bytes(html, "utf-8')
+    return bytes(html, 'utf-8')
 
 # --- Web Server ---
 def serve_web(m1, m2):
