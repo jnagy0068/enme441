@@ -51,6 +51,15 @@ load_positions()
 calibration = {"az_offset": 0.0, "el_offset": 0.0}
 self_team = {"id": None}
 
+# New: store absolute motor angles that correspond to your *physical zero*
+zero_positions = {"m1": 0.0, "m2": 0.0}
+
+def normalize_deg(angle):
+    """Normalize angle to [-180, 180)."""
+    a = ((angle + 180.0) % 360.0) - 180.0
+    # convert -180.0 to +180.0 consistently if desired (keep -180)
+    return a
+
 # --- Stepper Motor Class (uses threads so .angle is accurate in main process) ---
 class Stepper:
     seq = [0b0001,0b0011,0b0010,0b0110,0b0100,0b1100,0b1000,0b1001]
@@ -96,7 +105,9 @@ class Stepper:
         return t
 
     def goAngle(self, target):
-        # compute smallest rotation to target
+        # compute smallest rotation to target (target is absolute motor angle)
+        # normalize target to [-180,180) internal representation optional
+        # delta computed so motor moves shortest path
         delta = (target - self.angle + 540.0) % 360.0 - 180.0
         return self.rotate(delta)
 
@@ -109,20 +120,31 @@ def test_laser():
     time.sleep(1)
     GPIO.output(laser, GPIO.LOW)
 
-# --- Calibration Functions ---
+# --- Calibration & Zero Functions ---
 def save_zero(m1, m2):
-    # Save offsets so that calling return_to_zero will go to the current pose
-    calibration["el_offset"] = -m1.angle
-    calibration["az_offset"] = -m2.angle
-    print("Saved zero position:", calibration)
-    print(f"Saved angles: m1.angle={m1.angle:.3f}, m2.angle={m2.angle:.3f}")
+    """
+    Save the *current absolute motor angles* as the physical zero.
+    Also print a normalized and raw view for debugging.
+    """
+    zero_positions["m1"] = m1.angle
+    zero_positions["m2"] = m2.angle
+
+    # Keep calibration offsets untouched; calibration is for aiming bias corrections
+    print("Saved zero_positions (raw):", {"m1": m1.angle, "m2": m2.angle})
+    print("Saved zero_positions (normalized):", {"m1": normalize_deg(m1.angle), "m2": normalize_deg(m2.angle)})
 
 def return_to_zero(m1, m2):
-    target_el = calibration.get("el_offset", 0.0)
-    target_az = calibration.get("az_offset", 0.0)
-    print("Returning to zero... target_el=", target_el, " target_az=", target_az)
-    p1 = m1.goAngle(target_el)
-    p2 = m2.goAngle(target_az)
+    """
+    Return motors to the saved absolute angles in zero_positions.
+    These are absolute motor angles (not negatives).
+    """
+    tgt_m1 = zero_positions.get("m1", 0.0)
+    tgt_m2 = zero_positions.get("m2", 0.0)
+    print("Returning to zero... targets (raw):", {"m1": tgt_m1, "m2": tgt_m2})
+    print("Returning to zero... targets (norm):", {"m1": normalize_deg(tgt_m1), "m2": normalize_deg(tgt_m2)})
+
+    p1 = m1.goAngle(tgt_m1)
+    p2 = m2.goAngle(tgt_m2)
     p1.join()
     p2.join()
 
@@ -171,7 +193,7 @@ def aim_at_team(m1, m2, target_team):
     dist_to_center = r_self
     el_center_abs = math.atan2(dz_center, dist_to_center)  # radians
 
-    # Elevation command = difference from center-zero
+    # Elevation command = difference from center-zero (in degrees)
     el_rel_rad = el_target_abs - el_center_abs
     el_deg = el_rel_rad * 180.0 / math.pi
 
@@ -185,10 +207,10 @@ def aim_at_team(m1, m2, target_team):
     az_rel = az_world - turret_facing
     az_deg = -az_rel * 180.0 / math.pi  # NEGATE to match manual controls convention
 
-    # normalize azimuth to [-180, 180]
-    az_deg = (az_deg + 180.0) % 360.0 - 180.0
+    # normalize azimuth to [-180, 180)
+    az_deg = normalize_deg(az_deg)
 
-    # Apply calibration offsets saved with save_zero()
+    # Apply calibration offsets saved for aiming bias (not zero positions)
     az_deg += calibration.get("az_offset", 0.0)
     el_deg += calibration.get("el_offset", 0.0)
 
@@ -198,9 +220,20 @@ def aim_at_team(m1, m2, target_team):
         f"el_target_abs={el_target_abs*180/math.pi:.4f}°, el_center_abs={el_center_abs*180/math.pi:.4f}°"
     )
 
+    # target absolute angles for motors:
+    # elevation motor target = zero_positions['m1'] + el_deg
+    # azimuth motor target = zero_positions['m2'] + az_deg
+    tgt_el_abs = zero_positions.get("m1", 0.0) + el_deg
+    tgt_az_abs = zero_positions.get("m2", 0.0) + az_deg
+
+    # Normalize targets into [0, 360) or keep raw; Stepper.goAngle handles shortest path
+    # but for readability we normalize for print
+    print("Computed motor targets (raw):", {"el": tgt_el_abs, "az": tgt_az_abs})
+    print("Computed motor targets (norm):", {"el": normalize_deg(tgt_el_abs), "az": normalize_deg(tgt_az_abs)})
+
     # Rotate motors (elevation = m1, azimuth = m2)
-    p1 = m1.goAngle(el_deg)
-    p2 = m2.goAngle(az_deg)
+    p1 = m1.goAngle(tgt_el_abs)
+    p2 = m2.goAngle(tgt_az_abs)
     p1.join()
     p2.join()
 
@@ -264,7 +297,7 @@ def web_page(m1_angle, m2_angle):
     </body>
     </html>
     """
-    return bytes(html, 'utf-8')
+    return bytes(html, "utf-8")
 
 # --- Web Server ---
 def serve_web(m1, m2):
@@ -298,7 +331,9 @@ def serve_web(m1, m2):
             if "m1" in data and data["m1"].strip() != "":
                 try:
                     el = float(data["m1"])
-                    p = m1.goAngle(el)
+                    # manual commands are relative to zero_positions
+                    tgt = zero_positions.get("m1", 0.0) + el
+                    p = m1.goAngle(tgt)
                     p.join()
                 except Exception as e:
                     print("m1 manual error:", e)
@@ -306,12 +341,13 @@ def serve_web(m1, m2):
             if "m2" in data and data["m2"].strip() != "":
                 try:
                     az = float(data["m2"])
-                    p = m2.goAngle(az)
+                    tgt = zero_positions.get("m2", 0.0) + az
+                    p = m2.goAngle(tgt)
                     p.join()
                 except Exception as e:
                     print("m2 manual error:", e)
 
-            # Jog buttons
+            # Jog buttons (these are relative deltas)
             if "m1_jog" in data:
                 try:
                     delta = float(data["m1_jog"])
@@ -328,7 +364,7 @@ def serve_web(m1, m2):
                 except Exception as e:
                     print("m2_jog error:", e)
 
-            # Calibration
+            # Calibration / Zero
             if "return_zero" in data:
                 return_to_zero(m1, m2)
             if "save_zero" in data:
@@ -356,8 +392,10 @@ if __name__ == "__main__":
     m1 = Stepper(s, lock1, 0)  # elevation
     m2 = Stepper(s, lock2, 1)  # azimuth
 
-    m1.zero()
-    m2.zero()
+    # initialize zero_positions to current motor angles (whatever motors start at)
+    zero_positions["m1"] = m1.angle
+    zero_positions["m2"] = m2.angle
+    print("Initial zero_positions (raw):", zero_positions)
 
     t = threading.Thread(target=serve_web, args=(m1, m2), daemon=True)
     t.start()
