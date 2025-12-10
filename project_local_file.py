@@ -152,11 +152,12 @@ def aim_at_team(m1, m2, target_team):
     # --- Azimuth: horizontal rotation relative to turret pointing toward center ---
     az_rad = math.atan2(dy, dx) - (th_self + math.pi)
     az_deg = -az_rad * 180.0 / math.pi   # flip sign to match manual control
+    az_deg = (az_deg + 180) % 360 - 180
 
     # --- Elevation: vertical rotation based on dz and horizontal distance ---
     horizontal_dist = math.sqrt(dx**2 + dy**2)
     el_rad = math.atan2(dz, horizontal_dist)
-    el_deg = el_rad * 180.0 / math.pi
+    el_deg = -el_rad * 180.0 / math.pi
 
     # --- Apply calibration offsets ---
     az_deg += calibration["az_offset"]
