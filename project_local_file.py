@@ -10,7 +10,7 @@ from urllib.parse import parse_qs
 import math
 
 # z-positions (centimeters)
-turret_height_self = 0.3     # your turret laser height
+turret_height_self = 3.0     # your turret laser height
 turret_height_other = 0.0    # all other turrets' laser height
 
 # --- GPIO Setup ---
@@ -97,7 +97,7 @@ class Stepper:
 # --- Laser Function ---
 def test_laser():
     GPIO.output(laser, GPIO.HIGH)
-    time.sleep(3)
+    time.sleep(1)
     GPIO.output(laser, GPIO.LOW)
 
 # --- Calibration Functions ---
@@ -217,7 +217,7 @@ def web_page(m1_angle, m2_angle):
             <input type="submit" name="save_zero" value="Save Current Position as Zero"><br>
 
             <h3>Laser</h3>
-            <input type="submit" name="laser" value="Test Laser (3s)"><br>
+            <input type="submit" name="laser" value="Test Laser (1s)"><br>
         </form>
     </body>
     </html>
