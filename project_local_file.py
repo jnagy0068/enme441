@@ -13,10 +13,6 @@ import multiprocessing
 turret_height_self = 3.0     # your turret laser height (cm)
 turret_height_other = 0.0    # all other turrets' laser height (cm)
 
-# If your elevation motor's positive direction is opposite of "math positive up",
-# set this True to flip automatic elevation sign.
-ELEVATION_FLIP = True
-
 # --- GPIO Setup ---
 GPIO.setmode(GPIO.BCM)
 laser = 22
@@ -47,7 +43,7 @@ def load_positions():
 
 load_positions()
 
-# --- Turret and Calibration Data ---
+#  Turret and Calibration Data -
 calibration = {"az_offset": 0.0, "el_offset": 0.0}
 self_team = {"id": None}
 
@@ -196,10 +192,6 @@ def aim_at_team(m1, m2, target_team):
     # Elevation command = difference from center-zero (in degrees)
     el_rel_rad = el_target_abs - el_center_abs
     el_deg = el_rel_rad * 180.0 / math.pi
-
-    # optionally flip elevation sign to match motor direction if needed
-    if ELEVATION_FLIP:
-        el_deg = -el_deg
 
     # Azimuth: absolute azimuth to target in world coords
     az_world = math.atan2(dy, dx)
