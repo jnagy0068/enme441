@@ -15,7 +15,7 @@ turret_height_other = 0.0    # all other turrets' laser height (cm)
 
 # If your elevation motor's positive direction is opposite of "math positive up",
 # set this True to flip automatic elevation sign.
-ELEVATION_FLIP = False
+ELEVATION_FLIP = True
 
 # --- GPIO Setup ---
 GPIO.setmode(GPIO.BCM)
@@ -199,7 +199,7 @@ def aim_at_team(m1, m2, target_team):
 
     # optionally flip elevation sign to match motor direction if needed
     if ELEVATION_FLIP:
-        el_deg = el_deg
+        el_deg = -el_deg
 
     # Azimuth: absolute azimuth to target in world coords
     az_world = math.atan2(dy, dx)
