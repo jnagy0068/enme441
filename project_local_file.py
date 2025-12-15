@@ -349,7 +349,7 @@ if __name__ == "__main__":
     m1_worker.start()
     m2_worker.start()
 
-    threading.Thread(target=serve_web, args=(m1_worker, m2_worker), daemon=True).start()
+    threading.Thread(target=serve_web_safe, args=(m1_worker, m2_worker), daemon=True).start()
 
     try:
         while True:
