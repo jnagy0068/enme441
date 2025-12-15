@@ -132,6 +132,8 @@ def aim_at_team(m1, m2, target_team):
         print("ERROR: This turret's team number not in positions:", st)
         return
 
+    current_target_team["id"] = target_team
+
     # --- Positions from JSON ---
     r_self = positions["turrets"][st]["r"]
     theta_self = positions["turrets"][st]["theta"]
@@ -151,27 +153,24 @@ def aim_at_team(m1, m2, target_team):
     dy = y_tgt - y_self
     dz = z_tgt - z_self
 
-    # --- Compute azimuth (horizontal) ---
+    # --- Azimuth (horizontal) ---
     az_to_target = math.atan2(dy, dx)
-    az_current = theta_self + math.pi  # turret pointing toward center
-    # shortest angular difference
+    az_current = theta_self + math.pi
     delta_az = (az_to_target - az_current + math.pi) % (2 * math.pi) - math.pi
-    az_deg = math.degrees(delta_az) + calibration["az_offset"]
+    az_deg = math.degrees(delta_az) + calibration_offsets["m2"]
 
-    # --- Compute elevation (vertical) ---
+    # --- Elevation (vertical) ---
     horiz_dist = math.hypot(dx, dy)
     el_rad = math.atan2(dz, horiz_dist)
-    el_deg = math.degrees(el_rad) + calibration["el_offset"]
+    el_deg = math.degrees(el_rad) + calibration_offsets["m1"]
 
     print(f"Aiming at team {target_team}: az={az_deg:.2f}°, el={el_deg:.2f}° | "
           f"horiz_dist={horiz_dist:.2f} cm, dz={dz:.2f} cm")
 
-    # --- Rotate motors ---
     p1 = m1.goAngle(el_deg)
     p2 = m2.goAngle(az_deg)
     p1.join()
     p2.join()
-
 
 # --- POST Parsing ---
 def parsePOSTdata(data):
@@ -182,7 +181,7 @@ def parsePOSTdata(data):
     parsed = parse_qs(post, keep_blank_values=True)
     return {k:v[0] for k,v in parsed.items()}
 
-# --- Web Page with Half-Degree Jog and Current Teams ---
+# --- Web Page ---
 def web_page(m1_angle, m2_angle):
     def jog_buttons(name):
         buttons = [-90,-45,-15,-5,-1,-0.5,0.5,1,5,15,45,90]
