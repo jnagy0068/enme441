@@ -126,7 +126,7 @@ def return_to_zero(m1, m2):
     m2.goAngle(zero_angles["m2"] + calibration_offsets["m2"]).join()
 
 # --------------------------------------------------
-# Aim-at-Team
+# Aim-at-Team with correct azimuth and elevation
 # --------------------------------------------------
 def aim_at_team(m1, m2, target_team):
     if self_team["id"] is None:
@@ -140,11 +140,13 @@ def aim_at_team(m1, m2, target_team):
 
     current_target_team["id"] = target_team
 
+    # Turret positions
     r_self = positions["turrets"][st]["r"]
     th_self = positions["turrets"][st]["theta"]
     r_tgt  = positions["turrets"][target_team]["r"]
     th_tgt = positions["turrets"][target_team]["theta"]
 
+    # Convert polar to Cartesian
     x_self = r_self * math.cos(th_self)
     y_self = r_self * math.sin(th_self)
     x_tgt  = r_tgt * math.cos(th_tgt)
@@ -152,21 +154,27 @@ def aim_at_team(m1, m2, target_team):
 
     dx = x_tgt - x_self
     dy = y_tgt - y_self
-    dz = turret_height_other - turret_height_self
+    dz = turret_height_other - turret_height_self  # negative if target is below turret
 
-    az_deg = math.degrees(math.atan2(dy, dx)) + calibration_offsets["m2"]
-    az_deg = az_deg % 360
+    # Absolute azimuth in degrees
+    az_deg = math.degrees(math.atan2(dy, dx))
+    az_deg = (az_deg + calibration_offsets["m2"]) % 360
 
-    el_deg = -math.degrees(math.atan2(dz, math.hypot(dx, dy))) + calibration_offsets["m1"]
-    el_deg = el_deg % 360
+    # Signed elevation in degrees (negative = down)
+    el_deg = math.degrees(math.atan2(dz, math.hypot(dx, dy)))
+    el_deg += calibration_offsets["m1"]  # apply calibration offset
 
+    # Shortest-path deltas
     delta_az = (az_deg - m2.angle + 540) % 360 - 180
-    delta_el = (el_deg - m1.angle + 540) % 360 - 180
+    delta_el = el_deg - m1.angle  # signed, can be negative
+
     print(f"Aiming from m2={m2.angle:.2f}° to az={az_deg:.2f}° → delta={delta_az:.2f}°")
     print(f"Aiming from m1={m1.angle:.2f}° to el={el_deg:.2f}° → delta={delta_el:.2f}°")
 
-    m1.goAngle(el_deg).join()
-    m2.goAngle(az_deg).join()
+    # Move motors
+    m1.goAngle(m1.angle + delta_el).join()
+    m2.goAngle(m2.angle + delta_az).join()
+
 
 # --------------------------------------------------
 # POST Parsing
