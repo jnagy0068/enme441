@@ -140,11 +140,13 @@ def aim_at_team(m1, m2, target_team):
 
     current_target_team["id"] = target_team
 
+    # Get polar positions
     r_self = positions["turrets"][st]["r"]
     th_self = positions["turrets"][st]["theta"]
     r_tgt  = positions["turrets"][target_team]["r"]
     th_tgt = positions["turrets"][target_team]["theta"]
 
+    # Convert to Cartesian
     x_self = r_self * math.cos(th_self)
     y_self = r_self * math.sin(th_self)
     x_tgt  = r_tgt * math.cos(th_tgt)
@@ -156,11 +158,18 @@ def aim_at_team(m1, m2, target_team):
 
     # ABSOLUTE azimuth target
     az_deg = math.degrees(math.atan2(dy, dx)) + calibration_offsets["m2"]
+    az_deg = az_deg % 360  # normalize to 0-360
 
-    # elevation (sign corrected)
-    el_deg = -math.degrees(math.atan2(dz, math.hypot(dx, dy))) \
-             + calibration_offsets["m1"]
+    # Elevation (sign corrected)
+    el_deg = -math.degrees(math.atan2(dz, math.hypot(dx, dy))) + calibration_offsets["m1"]
 
+    # Debug prints to verify rotation
+    delta_az = (az_deg - m2.angle + 540) % 360 - 180
+    delta_el = (el_deg - m1.angle + 540) % 360 - 180
+    print(f"Aiming from m2={m2.angle:.2f}° to az={az_deg:.2f}° → delta={delta_az:.2f}°")
+    print(f"Aiming from m1={m1.angle:.2f}° to el={el_deg:.2f}° → delta={delta_el:.2f}°")
+
+    # Rotate motors
     m1.goAngle(el_deg).join()
     m2.goAngle(az_deg).join()
 
