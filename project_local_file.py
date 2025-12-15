@@ -158,74 +158,57 @@ def aim_at_team(m1, m2, target_team):
         print("ERROR: This turret's team number not in positions:", st)
         return
 
-    # read r and theta from JSON (assume units consistent e.g. cm)
-    r_self  = float(positions["turrets"][st]["r"])
-    th_self = float(positions["turrets"][st]["theta"])
-    r_tgt   = float(positions["turrets"][target_team]["r"])
-    th_tgt  = float(positions["turrets"][target_team]["theta"])
+    # --- Turret positions ---
+    th_self = positions["turrets"][st]["theta"]
+    r_self  = positions["turrets"][st]["r"]
 
-    # Cartesian positions in same unit (cm)
+    th_tgt  = positions["turrets"][target_team]["theta"]
+    r_tgt   = positions["turrets"][target_team]["r"]
+
+    # --- Cartesian coordinates ---
     x_self = r_self * math.cos(th_self)
     y_self = r_self * math.sin(th_self)
-    x_tgt  = r_tgt  * math.cos(th_tgt)
-    y_tgt  = r_tgt  * math.sin(th_tgt)
+    z_self = turret_height_self
 
-    # heights (cm)
-    z_self = float(turret_height_self)
-    z_tgt  = float(turret_height_other)
+    x_tgt  = r_tgt * math.cos(th_tgt)
+    y_tgt  = r_tgt * math.sin(th_tgt)
+    z_tgt  = turret_height_other
 
-    # vector from turret to target
+    # --- Target vector relative to turret ---
     dx = x_tgt - x_self
     dy = y_tgt - y_self
     dz = z_tgt - z_self
 
-    horizontal_dist = math.hypot(dx, dy)  # ground-plane distance (cm)
+    # --- Normalize horizontal vector (turret zero points at ground center) ---
+    zero_dx = -x_self
+    zero_dy = -y_self
+    zero_dz = -z_self  # actually points slightly down if laser aimed at z=0
 
-    # Absolute elevation (wrt horizontal plane) to the target
-    el_target_abs = math.atan2(dz, horizontal_dist)   # radians
+    # --- Compute azimuth rotation relative to zero direction ---
+    # Project both vectors onto XY plane
+    az_zero = math.atan2(zero_dy, zero_dx)
+    az_target = math.atan2(dy, dx)
+    az_deg = (az_target - az_zero) * 180.0 / math.pi
+    az_deg = (az_deg + 180) % 360 - 180  # normalize to [-180, 180]
+    az_deg += calibration["az_offset"]
 
-    # Absolute elevation to the center (this is your physical zero)
-    dz_center = 0.0 - z_self
-    dist_to_center = r_self
-    el_center_abs = math.atan2(dz_center, dist_to_center)  # radians
+    # --- Compute elevation rotation relative to zero direction ---
+    # Compute horizontal distance in XY plane
+    horiz_dist = math.sqrt(dx**2 + dy**2)
+    zero_horiz = math.sqrt(zero_dx**2 + zero_dy**2)
 
-    # Elevation command = difference from center-zero (in degrees)
-    el_rel_rad = el_target_abs - el_center_abs
-    el_deg = el_rel_rad * 180.0 / math.pi
+    # Elevation = difference in angle between zero vector and target vector
+    el_zero = math.atan2(zero_dz, zero_horiz)
+    el_target = math.atan2(dz, horiz_dist)
+    el_deg = (el_target - el_zero) * 180.0 / math.pi
+    el_deg += calibration["el_offset"]
 
-    # Azimuth: absolute azimuth to target in world coords
-    az_world = math.atan2(dy, dx)
-    turret_facing = th_self + math.pi   # turret zero points to center
-    az_rel = az_world - turret_facing
-    az_deg = -az_rel * 180.0 / math.pi  # NEGATE to match manual controls convention
+    print(f"Aiming at team {target_team}: az={az_deg:.2f}°, el={el_deg:.2f}° | "
+          f"horiz_dist={horiz_dist:.2f} cm, dz={dz:.2f} cm")
 
-    # normalize azimuth to [-180, 180)
-    az_deg = normalize_deg(az_deg)
-
-    # Apply calibration offsets saved for aiming bias (not zero positions)
-    az_deg += calibration.get("az_offset", 0.0)
-    el_deg += calibration.get("el_offset", 0.0)
-
-    print(
-        f"Aiming at team {target_team}: az={az_deg:.2f}°, el={el_deg:.2f}° | "
-        f"horiz_dist={horizontal_dist:.2f} cm, dz={dz:.2f} cm, "
-        f"el_target_abs={el_target_abs*180/math.pi:.4f}°, el_center_abs={el_center_abs*180/math.pi:.4f}°"
-    )
-
-    # target absolute angles for motors:
-    # elevation motor target = zero_positions['m1'] + el_deg
-    # azimuth motor target = zero_positions['m2'] + az_deg
-    tgt_el_abs = zero_positions.get("m1", 0.0) + el_deg
-    tgt_az_abs = zero_positions.get("m2", 0.0) + az_deg
-
-    # Normalize targets into [0, 360) or keep raw; Stepper.goAngle handles shortest path
-    # but for readability we normalize for print
-    print("Computed motor targets (raw):", {"el": tgt_el_abs, "az": tgt_az_abs})
-    print("Computed motor targets (norm):", {"el": normalize_deg(tgt_el_abs), "az": normalize_deg(tgt_az_abs)})
-
-    # Rotate motors (elevation = m1, azimuth = m2)
-    p1 = m1.goAngle(tgt_el_abs)
-    p2 = m2.goAngle(tgt_az_abs)
+    # --- Rotate motors ---
+    p1 = m1.goAngle(el_deg)
+    p2 = m2.goAngle(az_deg)
     p1.join()
     p2.join()
 
