@@ -9,9 +9,9 @@ import os
 from urllib.parse import parse_qs
 import math
 
-# --- Z-positions (centimeters) ---
-turret_height_self = 3.0     # your turret laser height
-turret_height_other = 0.0    # all other turrets' laser height
+# --- Configuration ---
+turret_height_self = 3.0     # your turret laser height in cm
+turret_height_other = 0.0    # all other turrets' laser height in cm
 
 # --- GPIO Setup ---
 GPIO.setmode(GPIO.BCM)
@@ -44,10 +44,9 @@ def load_positions():
 load_positions()
 
 # --- Turret and Calibration Data ---
-calibration = {"az_offset": 0.0, "el_offset": 0.0}
 self_team = {"id": None}
-current_target_team = {"id": None}
-zero_vector = {"dx": 0.0, "dy": 0.0, "dz": 1.0}  # initially pointing forward along z
+zero_angles = {"m1": 0.0, "m2": 0.0}    # Logical zero positions
+calibration_offsets = {"el": 0.0, "az": 0.0}  # Offsets applied from zero
 
 # --- Stepper Motor Class ---
 class Stepper:
@@ -90,6 +89,7 @@ class Stepper:
         return p
 
     def goAngle(self, target):
+        # Compute shortest-path delta
         delta = (target - self.angle + 540) % 360 - 180
         return self.rotate(delta)
 
@@ -104,19 +104,18 @@ def test_laser():
 
 # --- Calibration Functions ---
 def save_zero(m1, m2):
-    calibration["el_offset"] = -m1.angle
-    calibration["az_offset"] = -m2.angle
-    # Update zero vector
-    zero_vector["dx"] = math.cos(math.radians(m2.angle)) * math.cos(math.radians(m1.angle))
-    zero_vector["dy"] = math.sin(math.radians(m2.angle)) * math.cos(math.radians(m1.angle))
-    zero_vector["dz"] = math.sin(math.radians(m1.angle))
-    print("Saved zero position:", calibration)
-    print("Zero vector updated:", zero_vector)
+    # Save logical zero based on current angles
+    zero_angles["m1"] = m1.angle
+    zero_angles["m2"] = m2.angle
+    calibration_offsets["el"] = 0.0
+    calibration_offsets["az"] = 0.0
+    print(f"Saved zero angles: {zero_angles}")
 
 def return_to_zero(m1, m2):
-    target_el = calibration["el_offset"]
-    target_az = calibration["az_offset"]
-    print("Returning to zero...")
+    # Compute absolute target angles using logical zero and offsets
+    target_el = (zero_angles["m1"] + calibration_offsets["el"]) % 360
+    target_az = (zero_angles["m2"] + calibration_offsets["az"]) % 360
+    print(f"Returning to zero... targets: el={target_el:.3f}, az={target_az:.3f}")
     p1 = m1.goAngle(target_el)
     p2 = m2.goAngle(target_az)
     p1.join()
@@ -136,52 +135,46 @@ def aim_at_team(m1, m2, target_team):
         print("ERROR: This turret's team number not in positions:", st)
         return
 
-    # --- Turret positions ---
+    # --- Positions in radians ---
     th_self = positions["turrets"][st]["theta"]
-    r_self  = positions["turrets"][st]["r"]
     th_tgt  = positions["turrets"][target_team]["theta"]
-    r_tgt   = positions["turrets"][target_team]["r"]
+    r_self = positions["turrets"][st]["r"]
+    r_tgt  = positions["turrets"][target_team]["r"]
 
     # --- Cartesian positions ---
     x_self = r_self * math.cos(th_self)
     y_self = r_self * math.sin(th_self)
-    z_self = turret_height_self
-
     x_tgt  = r_tgt * math.cos(th_tgt)
     y_tgt  = r_tgt * math.sin(th_tgt)
+    z_self = turret_height_self
     z_tgt  = turret_height_other
 
+    # --- Compute delta vector ---
     dx = x_tgt - x_self
     dy = y_tgt - y_self
     dz = z_tgt - z_self
 
-    length = math.sqrt(dx**2 + dy**2 + dz**2)
-    dx /= length
-    dy /= length
-    dz /= length
+    # --- Horizontal distance ---
+    horiz_dist = math.hypot(dx, dy)
 
-    # --- Compute azimuth relative to zero vector ---
-    az_zero = math.atan2(zero_vector["dy"], zero_vector["dx"])
-    az_target = math.atan2(dy, dx)
-    az_deg = math.degrees(az_target - az_zero)
+    # --- Azimuth (shortest path) ---
+    az_rad = math.atan2(dy, dx) - th_self
+    az_deg = -az_rad * 180.0 / math.pi
     az_deg = (az_deg + 180) % 360 - 180
-    az_deg += calibration["az_offset"]
+    az_deg += calibration_offsets["az"]
+    az_target = (zero_angles["m2"] + az_deg) % 360
 
-    # --- Compute elevation relative to zero vector ---
-    horiz_zero = math.sqrt(zero_vector["dx"]**2 + zero_vector["dy"]**2)
-    horiz_target = math.sqrt(dx**2 + dy**2)
-    el_zero = math.atan2(zero_vector["dz"], horiz_zero)
-    el_target = math.atan2(dz, horiz_target)
-    el_deg = math.degrees(el_target - el_zero)
-    el_deg += calibration["el_offset"]
+    # --- Elevation ---
+    el_rad = math.atan2(dz, horiz_dist)
+    el_deg = -el_rad * 180.0 / math.pi
+    el_deg += calibration_offsets["el"]
+    el_target = (zero_angles["m1"] + el_deg) % 360
 
-    print(f"Aiming at team {target_team}: az={az_deg:.2f}°, el={el_deg:.2f}° | "
-          f"horiz_dist={r_tgt:.2f} cm, dz={dz*length:.2f} cm")
-
-    current_target_team["id"] = target_team
-
-    p1 = m1.goAngle(el_deg)
-    p2 = m2.goAngle(az_deg)
+    print(f"Aiming at team {target_team}: az={az_target:.2f}°, el={el_target:.2f}°, horiz_dist={horiz_dist:.2f} cm, dz={dz:.2f} cm")
+    
+    # Rotate motors
+    p1 = m1.goAngle(el_target)
+    p2 = m2.goAngle(az_target)
     p1.join()
     p2.join()
 
@@ -195,7 +188,8 @@ def parsePOSTdata(data):
     return {k:v[0] for k,v in parsed.items()}
 
 # --- Web Page with Manual Jog Buttons ---
-def web_page(m1_angle, m2_angle):
+def web_page(m1_angle, m2_angle, target_team=None):
+    current_team = self_team.get("id", "None")
     def jog_buttons(name):
         buttons = [-90, -45, -15, -5, -1, -0.5, 0.5, 1, 5, 15, 45, 90]
         html_buttons = ""
@@ -203,17 +197,13 @@ def web_page(m1_angle, m2_angle):
             html_buttons += f'<button name="{name}_jog" value="{b}">{b:+}°</button> '
         return html_buttons
 
-    current_team_str = self_team["id"] or "None"
-    target_team_str = current_target_team["id"] or "None"
-
     html = f"""
     <html>
     <head><title>Laser Turret</title></head>
-    <body style="font-family: Arial; text-align:center; margin-top:20px;">
+    <body style="font-family: Arial; text-align:center; margin-top:40px;">
         <h2>Laser Turret Control</h2>
-        <p><strong>Current Team:</strong> {current_team_str} &nbsp;&nbsp; 
-           <strong>Aiming at Team:</strong> {target_team_str}</p>
-
+        <p>Current Team: {current_team} | Target Team: {target_team if target_team else '-'}</p>
+        <p>Current Angles: El={m1_angle:.2f}°, Az={m2_angle:.2f}°</p>
         <form action="/" method="POST">
             <h3>This Turret's Team Number</h3>
             <input type="text" name="self_team" placeholder="Your team number"><br>
@@ -225,10 +215,10 @@ def web_page(m1_angle, m2_angle):
 
             <h3>Manual Motor Control</h3>
             <h4>Azimuth</h4>
-            <input type="text" name="m2" value="{m2_angle}"><br>
+            <input type="text" name="m2" value="{m2_angle:.2f}"><br>
             {jog_buttons('m2')}
             <h4>Elevation</h4>
-            <input type="text" name="m1" value="{m1_angle}"><br>
+            <input type="text" name="m1" value="{m1_angle:.2f}"><br>
             {jog_buttons('m1')}
 
             <br><input type="submit" value="Rotate Motors"><br>
@@ -245,8 +235,9 @@ def web_page(m1_angle, m2_angle):
     """
     return bytes(html, "utf-8")
 
-# --- POST Handler / Web Server ---
+# --- Web Server ---
 def serve_web(m1, m2):
+    target_team = None
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(('', 8080))
@@ -271,7 +262,8 @@ def serve_web(m1, m2):
 
             # Aim at another team
             if "aim_team" in data and data.get("team_box", "").strip() != "":
-                aim_at_team(m1, m2, data["team_box"].strip())
+                target_team = data["team_box"].strip()
+                aim_at_team(m1, m2, target_team)
 
             # Manual motor control
             if "m1" in data and data["m1"].strip() != "":
@@ -310,9 +302,8 @@ def serve_web(m1, m2):
             # Laser
             if "laser" in data: test_laser()
 
-        # --- Send response page ---
         try:
-            response = web_page(m1.angle, m2.angle)
+            response = web_page(m1.angle, m2.angle, target_team)
             conn.send(b"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n")
             conn.sendall(response)
         except: pass
