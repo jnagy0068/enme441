@@ -10,7 +10,7 @@ from urllib.parse import parse_qs
 import math
 
 # --- Z-positions (cm) ---
-turret_height_self = 3.0
+turret_height_self = 9.0
 turret_height_other = 0.0
 
 # --- GPIO Setup ---
@@ -126,55 +126,52 @@ def aim_at_team(m1, m2, target_team):
     if target_team not in positions.get("turrets", {}):
         print("Team not found in JSON:", target_team)
         return
+
     st = self_team["id"]
     if st not in positions["turrets"]:
         print("ERROR: This turret's team number not in positions:", st)
         return
 
-    # --- Store current target for display ---
-    current_target_team["id"] = target_team
-
-    # --- Positions in radians ---
-    th_self = positions["turrets"][st]["theta"]
-    th_tgt  = positions["turrets"][target_team]["theta"]
-
-    # --- Cartesian positions (radius from JSON) ---
+    # --- Positions from JSON ---
     r_self = positions["turrets"][st]["r"]
-    r_tgt  = positions["turrets"][target_team]["r"]
-    x_self = r_self * math.cos(th_self)
-    y_self = r_self * math.sin(th_self)
-    x_tgt  = r_tgt * math.cos(th_tgt)
-    y_tgt  = r_tgt * math.sin(th_tgt)
+    theta_self = positions["turrets"][st]["theta"]
+    r_tgt = positions["turrets"][target_team]["r"]
+    theta_tgt = positions["turrets"][target_team]["theta"]
 
-    # --- Z positions ---
+    # --- Cartesian coordinates ---
+    x_self = r_self * math.cos(theta_self)
+    y_self = r_self * math.sin(theta_self)
+    x_tgt = r_tgt * math.cos(theta_tgt)
+    y_tgt = r_tgt * math.sin(theta_tgt)
+
     z_self = turret_height_self
-    z_tgt  = turret_height_other
+    z_tgt = turret_height_other
 
     dx = x_tgt - x_self
     dy = y_tgt - y_self
     dz = z_tgt - z_self
 
-    # --- Shortest azimuth angle (relative to current facing) ---
-    az_target_rad = math.atan2(dy, dx)
-    az_current_rad = th_self + math.pi  # turret points toward center initially
-    delta_rad = (az_target_rad - az_current_rad + math.pi) % (2*math.pi) - math.pi
-    az_deg = math.degrees(delta_rad)
-    az_deg += calibration_offsets["m2"]
+    # --- Compute azimuth (horizontal) ---
+    az_to_target = math.atan2(dy, dx)
+    az_current = theta_self + math.pi  # turret pointing toward center
+    # shortest angular difference
+    delta_az = (az_to_target - az_current + math.pi) % (2 * math.pi) - math.pi
+    az_deg = math.degrees(delta_az) + calibration["az_offset"]
 
-    # --- Elevation based on dz / horizontal distance ---
-    horizontal_dist = math.sqrt(dx**2 + dy**2)
-    el_rad = math.atan2(dz, horizontal_dist)
-    el_deg = math.degrees(el_rad)
-    el_deg += calibration_offsets["m1"]
+    # --- Compute elevation (vertical) ---
+    horiz_dist = math.hypot(dx, dy)
+    el_rad = math.atan2(dz, horiz_dist)
+    el_deg = math.degrees(el_rad) + calibration["el_offset"]
 
     print(f"Aiming at team {target_team}: az={az_deg:.2f}°, el={el_deg:.2f}° | "
-          f"horiz_dist={horizontal_dist:.2f} cm, dz={dz:.2f} cm")
+          f"horiz_dist={horiz_dist:.2f} cm, dz={dz:.2f} cm")
 
     # --- Rotate motors ---
     p1 = m1.goAngle(el_deg)
     p2 = m2.goAngle(az_deg)
     p1.join()
     p2.join()
+
 
 # --- POST Parsing ---
 def parsePOSTdata(data):
