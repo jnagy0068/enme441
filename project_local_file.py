@@ -82,6 +82,10 @@ class Stepper:
         for _ in range(steps):
             self._step(direction)
 
+    def zero(self):
+        """Reset internal angle counter to 0 without moving motors."""
+        self.angle = 0.0
+
 # ---------------------- Motor Controller ----------------------
 class MotorController(threading.Thread):
     def __init__(self, m1, m2):
