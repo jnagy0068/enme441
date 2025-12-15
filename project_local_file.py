@@ -244,7 +244,7 @@ def serve_web(m1, m2):
                 aim_at_team(m1, m2, d.get("team_box"))
 
             # Only process manual rotation if "Rotate" button clicked
-            if "Rotate" in msg:
+            if "Rotate" in d:
                 if "m1" in d and d["m1"]:
                     try: m1.goAngle(float(d["m1"])).join()
                     except: pass
