@@ -24,7 +24,7 @@ GPIO.setup(laser, GPIO.OUT)
 GPIO.output(laser, GPIO.LOW)
 
 # --------------------------------------------------
-# Load positions from local JSON (UNCHANGED)
+# Load positions from local JSON
 # --------------------------------------------------
 positions = {}
 
@@ -126,7 +126,7 @@ def return_to_zero(m1, m2):
     m2.goAngle(zero_angles["m2"] + calibration_offsets["m2"]).join()
 
 # --------------------------------------------------
-# Aim-at-Team (FIXED ABSOLUTE AZIMUTH)
+# Aim-at-Team
 # --------------------------------------------------
 def aim_at_team(m1, m2, target_team):
     if self_team["id"] is None:
@@ -140,13 +140,11 @@ def aim_at_team(m1, m2, target_team):
 
     current_target_team["id"] = target_team
 
-    # Get polar positions
     r_self = positions["turrets"][st]["r"]
     th_self = positions["turrets"][st]["theta"]
     r_tgt  = positions["turrets"][target_team]["r"]
     th_tgt = positions["turrets"][target_team]["theta"]
 
-    # Convert to Cartesian
     x_self = r_self * math.cos(th_self)
     y_self = r_self * math.sin(th_self)
     x_tgt  = r_tgt * math.cos(th_tgt)
@@ -158,10 +156,11 @@ def aim_at_team(m1, m2, target_team):
 
     # ABSOLUTE azimuth target
     az_deg = math.degrees(math.atan2(dy, dx)) + calibration_offsets["m2"]
-    az_deg = az_deg % 360  # normalize to 0-360
+    az_deg = az_deg % 360
 
-    # Elevation (sign corrected)
+    # elevation (sign corrected)
     el_deg = -math.degrees(math.atan2(dz, math.hypot(dx, dy))) + calibration_offsets["m1"]
+    el_deg = el_deg % 360
 
     # Debug prints to verify rotation
     delta_az = (az_deg - m2.angle + 540) % 360 - 180
@@ -169,7 +168,6 @@ def aim_at_team(m1, m2, target_team):
     print(f"Aiming from m2={m2.angle:.2f}° to az={az_deg:.2f}° → delta={delta_az:.2f}°")
     print(f"Aiming from m1={m1.angle:.2f}° to el={el_deg:.2f}° → delta={delta_el:.2f}°")
 
-    # Rotate motors
     m1.goAngle(el_deg).join()
     m2.goAngle(az_deg).join()
 
@@ -210,7 +208,7 @@ def web_page(m1_angle, m2_angle):
         Az <input name="m2" value="{m2_angle:.2f}">{jog('m2')}<br>
         El <input name="m1" value="{m1_angle:.2f}">{jog('m1')}<br><br>
 
-        <button>Rotate</button>
+        <button name="Rotate">Rotate</button>
 
         <h3>Calibration</h3>
         <button name="save_zero">Save Zero</button>
@@ -231,10 +229,11 @@ def serve_web(m1, m2):
     s.bind(('', 8080))
     s.listen(3)
 
+    print("Web server started on port 8080")
+
     while True:
         conn, _ = s.accept()
         msg = conn.recv(4096).decode(errors="ignore")
-
         if msg.startswith("POST"):
             d = parsePOSTdata(msg)
 
@@ -244,7 +243,7 @@ def serve_web(m1, m2):
             if "aim_team" in d:
                 aim_at_team(m1, m2, d.get("team_box"))
 
-            # Only move m1/m2 if the "Rotate" button was clicked
+            # Only process manual rotation if "Rotate" button clicked
             if "Rotate" in msg:
                 if "m1" in d and d["m1"]:
                     try: m1.goAngle(float(d["m1"])).join()
@@ -253,11 +252,11 @@ def serve_web(m1, m2):
                     try: m2.goAngle(float(d["m2"])).join()
                     except: pass
 
-            for k in ("m1_jog","m2_jog"):
-                if k in d:
-                    try:
-                        (m1 if "m1" in k else m2).rotate(float(d[k])).join()
-                    except: pass
+                for k in ("m1_jog","m2_jog"):
+                    if k in d:
+                        try:
+                            (m1 if "m1" in k else m2).rotate(float(d[k])).join()
+                        except: pass
 
             if "save_zero" in d: save_zero(m1, m2)
             if "return_zero" in d: return_to_zero(m1, m2)
