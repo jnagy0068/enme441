@@ -235,13 +235,14 @@ def serve_web(m1, m2):
             if "aim_team" in d:
                 aim_at_team(m1, m2, d.get("team_box"))
 
-            if "m1" in d and d["m1"]:
-                try: m1.goAngle(float(d["m1"])).join()
-                except: pass
-
-            if "m2" in d and d["m2"]:
-                try: m2.goAngle(float(d["m2"])).join()
-                except: pass
+            # Only move m1/m2 if the "Rotate" button was clicked
+            if "Rotate" in msg:
+                if "m1" in d and d["m1"]:
+                    try: m1.goAngle(float(d["m1"])).join()
+                    except: pass
+                if "m2" in d and d["m2"]:
+                    try: m2.goAngle(float(d["m2"])).join()
+                    except: pass
 
             for k in ("m1_jog","m2_jog"):
                 if k in d:
