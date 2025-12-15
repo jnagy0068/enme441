@@ -32,7 +32,6 @@ def load_positions():
     global positions
     script_dir = os.path.dirname(os.path.realpath(__file__))
     filename = os.path.join(script_dir, "test_positions.json")
-
     if os.path.exists(filename):
         with open(filename, "r") as f:
             positions = json.load(f)
@@ -66,7 +65,7 @@ class Stepper:
         self.s = shifter
         self.lock = lock
         self.index = index
-        self.angle = 0.0  # signed for elevation, modulo 360 for azimuth
+        self.angle = 0.0
         self.step_state = 0
         self.bit_start = 4 * index
 
@@ -82,7 +81,6 @@ class Stepper:
             self.s.shiftByte(final)
             self.s.last_value = final
 
-        # Update angle
         delta_angle = direction / Stepper.steps_per_degree
         if self.index == 0:  # elevation
             self.angle += delta_angle  # signed, no wrapping
@@ -126,15 +124,15 @@ def test_laser():
 def save_zero(m1, m2):
     zero_angles["m1"] = m1.angle
     zero_angles["m2"] = m2.angle
-    calibration_offsets["m1"] = -m1.angle
-    calibration_offsets["m2"] = -m2.angle
+    print(f"Saved zero: m1={m1.angle:.2f}, m2={m2.angle:.2f}")
 
 def return_to_zero(m1, m2):
-    m1.goAngle(zero_angles["m1"] + calibration_offsets["m1"]).join()
-    m2.goAngle(zero_angles["m2"] + calibration_offsets["m2"]).join()
+    print(f"Returning to zero: m1={zero_angles['m1']:.2f}, m2={zero_angles['m2']:.2f}")
+    m1.goAngle(zero_angles["m1"]).join()
+    m2.goAngle(zero_angles["m2"]).join()
 
 # --------------------------------------------------
-# Aim-at-Team with correct height and shortest-path
+# Aim-at-Team
 # --------------------------------------------------
 def aim_at_team(m1, m2, target_team):
     if self_team["id"] is None:
@@ -160,24 +158,25 @@ def aim_at_team(m1, m2, target_team):
 
     dx = x_tgt - x_self
     dy = y_tgt - y_self
-    dz = turret_height_other - turret_height_self  # negative if target below turret
+    dz = turret_height_other - turret_height_self
 
-    # Absolute azimuth (0–360°)
+    # Azimuth
     az_deg = math.degrees(math.atan2(dy, dx)) + calibration_offsets["m2"]
     az_deg %= 360
 
-    # Signed elevation (negative = down)
+    # Elevation
     el_deg = math.degrees(math.atan2(dz, math.hypot(dx, dy))) + calibration_offsets["m1"]
 
     # Shortest-path deltas
     delta_az = (az_deg - m2.angle + 540) % 360 - 180
-    delta_el = el_deg - m1.angle  # signed
+    delta_el = el_deg - m1.angle
 
     print(f"Aiming from m2={m2.angle:.2f}° to az={az_deg:.2f}° → delta={delta_az:.2f}°")
     print(f"Aiming from m1={m1.angle:.2f}° to el={el_deg:.2f}° → delta={delta_el:.2f}°")
 
     m1.goAngle(m1.angle + delta_el).join()
     m2.goAngle(m2.angle + delta_az).join()
+
 # --------------------------------------------------
 # POST Parsing
 # --------------------------------------------------
@@ -192,10 +191,10 @@ def parsePOSTdata(data):
 # Web Page
 # --------------------------------------------------
 def web_page(m1_angle, m2_angle):
-    def jog_buttons(name):
+    def jog(name):
         vals = [-90,-45,-15,-5,-1,-0.5,0.5,1,5,15,45,90]
         return " ".join(
-            f'<button type="submit" name="{name}" value="{v}">{v:+}°</button>'
+            f'<button name="{name}_jog" value="{v}">{v:+}°</button>'
             for v in vals
         )
 
@@ -206,24 +205,23 @@ def web_page(m1_angle, m2_angle):
 
     <form method="POST">
         <h3>Set Team</h3>
-        <input name="self_team">
-        <button type="submit" name="set_self_team" value="1">Set</button>
+        <input name="self_team"><button name="set_self_team">Set</button>
 
         <h3>Aim</h3>
-        <input name="team_box">
-        <button type="submit" name="aim_team" value="1">Aim</button>
+        <input name="team_box"><button name="aim_team">Aim</button>
 
         <h3>Manual</h3>
-        Az <input name="m2" value="{m2_angle:.2f}">{jog_buttons('m2_jog')}<br>
-        El <input name="m1" value="{m1_angle:.2f}">{jog_buttons('m1_jog')}<br><br>
-        <button type="submit" name="manual_move" value="1">Rotate</button>
+        Az <input name="m2" value="{m2_angle:.2f}">{jog('m2')}<br>
+        El <input name="m1" value="{m1_angle:.2f}">{jog('m1')}<br><br>
+
+        <button>Rotate</button>
 
         <h3>Calibration</h3>
-        <button type="submit" name="save_zero" value="1">Save Zero</button>
-        <button type="submit" name="return_zero" value="1">Return Zero</button>
+        <button name="save_zero">Save Zero</button>
+        <button name="return_zero">Return Zero</button>
 
         <h3>Laser</h3>
-        <button type="submit" name="laser" value="1">Test</button>
+        <button name="laser">Test</button>
     </form>
     </body></html>
     """.encode()
@@ -237,43 +235,35 @@ def serve_web(m1, m2):
     s.bind(('', 8080))
     s.listen(3)
 
-    print("Web server started on port 8080")
-
     while True:
         conn, _ = s.accept()
         msg = conn.recv(4096).decode(errors="ignore")
+
         if msg.startswith("POST"):
             d = parsePOSTdata(msg)
 
-            # Set self team
             if "set_self_team" in d:
                 self_team["id"] = d.get("self_team")
 
-            # Auto-aim at team
             if "aim_team" in d:
                 aim_at_team(m1, m2, d.get("team_box"))
 
-            # Manual rotation input
-            if "manual_move" in d:
-                if "m1" in d and d["m1"]:
-                    try: m1.goAngle(float(d["m1"])).join()
-                    except: pass
-                if "m2" in d and d["m2"]:
-                    try: m2.goAngle(float(d["m2"])).join()
-                    except: pass
+            if "m1" in d and d["m1"]:
+                try: m1.goAngle(float(d["m1"])).join()
+                except: pass
 
-            # Jog buttons
+            if "m2" in d and d["m2"]:
+                try: m2.goAngle(float(d["m2"])).join()
+                except: pass
+
             for k in ("m1_jog","m2_jog"):
                 if k in d:
                     try:
                         (m1 if "m1" in k else m2).rotate(float(d[k])).join()
                     except: pass
 
-            # Calibration
             if "save_zero" in d: save_zero(m1, m2)
             if "return_zero" in d: return_to_zero(m1, m2)
-
-            # Laser
             if "laser" in d: test_laser()
 
         conn.send(b"HTTP/1.1 200 OK\r\nContent-Type:text/html\r\n\r\n")
