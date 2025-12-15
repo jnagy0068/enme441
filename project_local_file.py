@@ -141,11 +141,13 @@ def aim_at_team(m1, m2, target_team):
         print("ERROR: This turret's team number not in positions:", st)
         return
 
+    # --- Turret positions ---
     th_self = positions["turrets"][st]["theta"]
     r_self  = positions["turrets"][st]["r"]
     th_tgt  = positions["turrets"][target_team]["theta"]
     r_tgt   = positions["turrets"][target_team]["r"]
 
+    # --- Cartesian coordinates ---
     x_self = r_self * math.cos(th_self)
     y_self = r_self * math.sin(th_self)
     z_self = turret_height_self
@@ -154,9 +156,29 @@ def aim_at_team(m1, m2, target_team):
     y_tgt  = r_tgt * math.sin(th_tgt)
     z_tgt  = turret_height_other
 
+    # --- Relative vector to target ---
     dx = x_tgt - x_self
     dy = y_tgt - y_self
     dz = z_tgt - z_self
+    horiz_dist = math.hypot(dx, dy)
+
+    # --- Compute absolute azimuth and elevation angles ---
+    az_target = math.degrees(math.atan2(dy, dx))
+    el_target = math.degrees(math.atan2(dz, horiz_dist))
+
+    # --- Compute delta relative to saved zero and current motor angle ---
+    az_delta = normalize_deg(az_target - zero_positions["m2"] - m2.angle + calibration["az_offset"])
+    el_delta = normalize_deg(el_target - zero_positions["m1"] - m1.angle + calibration["el_offset"])
+
+    print(f"Aiming at team {target_team}: az_delta={az_delta:.2f}°, el_delta={el_delta:.2f}° | "
+          f"horiz_dist={horiz_dist:.2f} cm, dz={dz:.2f} cm")
+
+    # --- Rotate motors along shortest path ---
+    p1 = m1.rotate(el_delta)
+    p2 = m2.rotate(az_delta)
+    p1.join()
+    p2.join()
+
 
     # --- Compute absolute azimuth and elevation ---
     az_target = math.degrees(math.atan2(dy, dx))
