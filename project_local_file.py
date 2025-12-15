@@ -73,15 +73,20 @@ class Stepper:
             self.s.shiftByte(final)
             self.s.last_value = final
         self.angle = (self.angle + direction/Stepper.steps_per_degree) % 360
+        logging.debug(f"Motor {self.index} step: angle={self.angle:.2f}")
         time.sleep(Stepper.delay)
 
     def _rotate(self, delta):
+        if abs(delta) < 0.01:  # ignore tiny moves
+            return
         direction = self._sgn(delta)
         steps = int(abs(delta)*Stepper.steps_per_degree)
         for _ in range(steps):
             self._step(direction)
 
     def rotate(self, delta):
+        if abs(delta) < 0.01:
+            return
         t = threading.Thread(target=self._rotate, args=(delta,), daemon=True)
         t.start()
         return t
@@ -95,6 +100,7 @@ class Stepper:
 
 # ---------------------- Laser ----------------------
 def test_laser():
+    logging.info("Laser test triggered")
     GPIO.output(laser, GPIO.HIGH)
     time.sleep(1)
     GPIO.output(laser, GPIO.LOW)
@@ -201,22 +207,38 @@ def serve_web(m1, m2):
             msg = conn.recv(4096).decode(errors="ignore")
             if msg.startswith("POST"):
                 d = parsePOSTdata(msg)
-                if "set_self_team" in d: self_team["id"] = d.get("self_team")
-                if "aim_team" in d and d.get("team_box"): aim_at_team(m1,m2,d.get("team_box"))
 
+                if "set_self_team" in d:
+                    self_team["id"] = d.get("self_team")
+
+                if "aim_team" in d and d.get("team_box"):
+                    aim_at_team(m1,m2,d.get("team_box"))
+
+                # Manual control
                 for motor_name, motor in (("m1",m1),("m2",m2)):
                     if motor_name in d and d[motor_name]:
-                        try: motor.goAngle(float(d[motor_name]))
+                        try:
+                            target = float(d[motor_name])
+                            if abs(target - motor.angle) > 0.01:
+                                motor.goAngle(target)
                         except: pass
 
+                # Jog buttons
                 for k,motor in (("m1_jog",m1),("m2_jog",m2)):
                     if k in d:
-                        try: motor.rotate(float(d[k]))
+                        try:
+                            motor.rotate(float(d[k]))
                         except: pass
 
-                if "save_zero" in d: save_zero(m1,m2)
-                if "return_zero" in d: return_to_zero(m1,m2)
-                if "laser" in d: test_laser()
+                # Calibration
+                if "save_zero" in d:
+                    save_zero(m1,m2)
+                if "return_zero" in d:
+                    return_to_zero(m1,m2)
+
+                # Laser
+                if "laser" in d:
+                    test_laser()
 
             conn.send(b"HTTP/1.1 200 OK\r\nContent-Type:text/html\r\n\r\n")
             conn.sendall(web_page_safe(m1,m2))
