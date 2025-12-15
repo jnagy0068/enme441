@@ -188,16 +188,16 @@ def aim_at_team(m1, m2, target_team):
     # Project both vectors onto XY plane
     az_zero = math.atan2(zero_dy, zero_dx)
     az_target = math.atan2(dy, dx)
-    az_deg = (az_target - az_zero) * 180.0 / math.pi
+
+    # --- CHANGE: flip subtraction to correct rotation direction ---
+    az_deg = (az_zero - az_target) * 180.0 / math.pi
     az_deg = (az_deg + 180) % 360 - 180  # normalize to [-180, 180]
     az_deg += calibration["az_offset"]
 
     # --- Compute elevation rotation relative to zero direction ---
-    # Compute horizontal distance in XY plane
     horiz_dist = math.sqrt(dx**2 + dy**2)
     zero_horiz = math.sqrt(zero_dx**2 + zero_dy**2)
 
-    # Elevation = difference in angle between zero vector and target vector
     el_zero = math.atan2(zero_dz, zero_horiz)
     el_target = math.atan2(dz, horiz_dist)
     el_deg = (el_target - el_zero) * 180.0 / math.pi
