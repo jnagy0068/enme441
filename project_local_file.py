@@ -178,8 +178,17 @@ def parsePOSTdata(data):
     parsed = parse_qs(data[idx+4:], keep_blank_values=True)
     return {k:v[0] for k,v in parsed.items()}
 
-# ---------------------- Web Page ----------------------
-def web_page(m1_angle, m2_angle):
+# ---------------------- Safe Web Page ----------------------
+def web_page_safe(m1_worker, m2_worker):
+    try:
+        m1_angle = getattr(m1_worker.motor, "angle", 0.0)
+    except Exception:
+        m1_angle = 0.0
+    try:
+        m2_angle = getattr(m2_worker.motor, "angle", 0.0)
+    except Exception:
+        m2_angle = 0.0
+
     def jog_buttons(name):
         vals = [-90, -45, -15, -5, -1, -0.5, 0.5, 1, 5, 15, 45, 90]
         return " ".join(f'<button name="{name}_jog" value="{v}">{v:+}°</button>' for v in vals)
@@ -247,8 +256,8 @@ input[type="text"] {{ width:80px; text-align:center; }}
 </html>
 """.encode()
 
-# ---------------------- Web Server ----------------------
-def serve_web(m1_worker, m2_worker):
+# ---------------------- Safe Web Server ----------------------
+def serve_web_safe(m1_worker, m2_worker):
     s = socket.socket()
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(('', 8080))
@@ -270,51 +279,55 @@ def serve_web(m1_worker, m2_worker):
                 d = parsePOSTdata(msg)
                 logging.info(f"POST data from {addr}: {d}")
 
-                if "set_self_team" in d:
-                    self_team["id"] = d.get("self_team")
-                    logging.info(f"Set self team: {self_team['id']}")
+                try:
+                    if "set_self_team" in d:
+                        self_team["id"] = d.get("self_team")
+                        logging.info(f"Set self team: {self_team['id']}")
+                except Exception as e:
+                    logging.error(f"Set team error: {e}")
 
-                if "aim_team" in d and d.get("team_box"):
-                    try:
+                try:
+                    if "aim_team" in d and d.get("team_box"):
                         aim_at_team(m1_worker, m2_worker, d.get("team_box"))
-                    except Exception as e:
-                        logging.error(f"Aim error: {e}")
+                except Exception as e:
+                    logging.error(f"Aim error: {e}")
 
-                for motor_name, worker in (("m1", m1_worker), ("m2", m2_worker)):
-                    if motor_name in d and d[motor_name]:
-                        try:
-                            delta = float(d[motor_name]) - worker.motor.angle
+                try:
+                    for motor_name, worker in (("m1", m1_worker), ("m2", m2_worker)):
+                        if motor_name in d and d[motor_name]:
+                            delta = float(d[motor_name]) - getattr(worker.motor, "angle", 0.0)
                             worker.rotate(delta)
-                        except Exception as e:
-                            logging.error(f"{motor_name} manual rotate error: {e}")
+                except Exception as e:
+                    logging.error(f"Manual control error: {e}")
 
-                for k, worker in (("m1_jog", m1_worker), ("m2_jog", m2_worker)):
-                    if k in d:
-                        try:
+                try:
+                    for k, worker in (("m1_jog", m1_worker), ("m2_jog", m2_worker)):
+                        if k in d:
                             worker.rotate(float(d[k]))
-                        except Exception as e:
-                            logging.error(f"{k} jog error: {e}")
+                except Exception as e:
+                    logging.error(f"Jog error: {e}")
 
-                if "save_zero" in d:
-                    try:
+                try:
+                    if "save_zero" in d:
                         save_zero(m1_worker.motor, m2_worker.motor)
-                    except Exception as e:
-                        logging.error(f"Save zero error: {e}")
+                except Exception as e:
+                    logging.error(f"Save zero error: {e}")
 
-                if "return_zero" in d:
-                    try:
+                try:
+                    if "return_zero" in d:
                         return_to_zero(m1_worker.motor, m2_worker.motor)
-                    except Exception as e:
-                        logging.error(f"Return zero error: {e}")
+                except Exception as e:
+                    logging.error(f"Return zero error: {e}")
 
-                if "laser" in d:
-                    try:
+                try:
+                    if "laser" in d:
                         test_laser()
-                    except Exception as e:
-                        logging.error(f"Laser test error: {e}")
+                except Exception as e:
+                    logging.error(f"Laser test error: {e}")
 
+            # Send page safely
             conn.send(b"HTTP/1.1 200 OK\r\nContent-Type:text/html\r\n\r\n")
-            conn.sendall(web_page(m1_worker.motor.angle, m2_worker.motor.angle))
+            conn.sendall(web_page_safe(m1_worker, m2_worker))
         except Exception as e:
             logging.error(f"Web server error for {addr}: {e}")
         finally:
