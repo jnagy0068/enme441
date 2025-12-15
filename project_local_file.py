@@ -37,7 +37,6 @@ def load_positions():
         try:
             with open(filename, "r") as f:
                 positions = json.load(f)
-
             print("Loaded JSON position file successfully:")
             print(json.dumps(positions, indent=2))
             print("Available turret keys:",
@@ -98,7 +97,6 @@ class Stepper:
     def _rotate(self, delta):
         direction = self._sgn(delta)
         steps = int(abs(delta) * Stepper.steps_per_degree)
-
         for _ in range(steps):
             self._step(direction)
 
@@ -139,8 +137,6 @@ def return_to_zero(m1, m2):
     el_target = zero_angles["m1"] + calibration_offsets["m1"]
     az_target = zero_angles["m2"] + calibration_offsets["m2"]
 
-    print(f"Returning to zero: el={el_target:.2f}, az={az_target:.2f}")
-
     t1 = m1.goAngle(el_target)
     t2 = m2.goAngle(az_target)
 
@@ -148,20 +144,16 @@ def return_to_zero(m1, m2):
     t2.join()
 
 # --------------------------------------------------
-# Aim-at-Team Logic (UNCHANGED GEOMETRY)
+# Aim-at-Team Logic (FIXED)
 # --------------------------------------------------
 def aim_at_team(m1, m2, target_team):
     if self_team["id"] is None:
-        print("ERROR: Self team not set.")
         return
-
     if target_team not in positions.get("turrets", {}):
-        print("Target team not found:", target_team)
         return
 
     st = self_team["id"]
     if st not in positions["turrets"]:
-        print("ERROR: Self team not in JSON:", st)
         return
 
     current_target_team["id"] = target_team
@@ -184,16 +176,13 @@ def aim_at_team(m1, m2, target_team):
     dz = z_tgt - z_self
 
     az_to_target = math.atan2(dy, dx)
-    az_current = theta_self + math.pi
+    az_current = theta_self
     delta_az = (az_to_target - az_current + math.pi) % (2 * math.pi) - math.pi
     az_deg = math.degrees(delta_az) + calibration_offsets["m2"]
 
     horiz_dist = math.hypot(dx, dy)
     el_rad = math.atan2(dz, horiz_dist)
-    el_deg = math.degrees(el_rad) + calibration_offsets["m1"]
-
-    print(f"Aiming at team {target_team}: "
-          f"az={az_deg:.2f}°, el={el_deg:.2f}°")
+    el_deg = -math.degrees(el_rad) + calibration_offsets["m1"]
 
     t1 = m1.goAngle(el_deg)
     t2 = m2.goAngle(az_deg)
@@ -223,42 +212,35 @@ def web_page(m1_angle, m2_angle):
             for b in buttons
         )
 
-    current_team = self_team["id"] or "N/A"
-    target_team = current_target_team["id"] or "N/A"
-
     html = f"""
     <html>
-    <head><title>Laser Turret</title></head>
-    <body style="font-family:Arial;text-align:center;margin-top:20px;">
-        <h2>Laser Turret Control</h2>
-        <p>Current team: {current_team} | Aiming at: {target_team}</p>
+    <body style="font-family:Arial;text-align:center;">
+        <h2>Laser Turret</h2>
+        <p>Current team: {self_team['id']} | Target: {current_target_team['id']}</p>
 
-        <form action="/" method="POST">
-            <h3>Set This Turret's Team</h3>
-            <input type="text" name="self_team">
-            <input type="submit" name="set_self_team" value="Set"><br><br>
+        <form method="POST">
+            <h3>Set Self Team</h3>
+            <input name="self_team">
+            <button name="set_self_team">Set</button>
 
             <h3>Aim at Team</h3>
-            <input type="text" name="team_box">
-            <input type="submit" name="aim_team" value="Aim"><br><br>
+            <input name="team_box">
+            <button name="aim_team">Aim</button>
 
             <h3>Manual Control</h3>
-            <h4>Azimuth</h4>
-            <input type="text" name="m2" value="{m2_angle:.2f}"><br>
-            {jog_buttons('m2')}
-
-            <h4>Elevation</h4>
-            <input type="text" name="m1" value="{m1_angle:.2f}"><br>
+            Azimuth <input name="m2" value="{m2_angle:.2f}">
+            {jog_buttons('m2')}<br>
+            Elevation <input name="m1" value="{m1_angle:.2f}">
             {jog_buttons('m1')}<br><br>
 
-            <input type="submit" value="Rotate"><br><br>
+            <button>Rotate</button>
 
             <h3>Calibration</h3>
-            <input type="submit" name="return_zero" value="Return to Zero">
-            <input type="submit" name="save_zero" value="Save Zero"><br><br>
+            <button name="return_zero">Return Zero</button>
+            <button name="save_zero">Save Zero</button>
 
             <h3>Laser</h3>
-            <input type="submit" name="laser" value="Test Laser">
+            <button name="laser">Test Laser</button>
         </form>
     </body>
     </html>
@@ -274,8 +256,6 @@ def serve_web(m1, m2):
     s.bind(('', 8080))
     s.listen(3)
 
-    print("Web server running on port 8080")
-
     while True:
         conn, _ = s.accept()
         msg = conn.recv(4096).decode(errors="ignore")
@@ -285,22 +265,17 @@ def serve_web(m1, m2):
 
             if "set_self_team" in data and data.get("self_team"):
                 self_team["id"] = data["self_team"].strip()
-                print("Self team set to:", self_team["id"])
 
             if "aim_team" in data and data.get("team_box"):
                 aim_at_team(m1, m2, data["team_box"].strip())
 
             if "m1" in data and data["m1"]:
-                try:
-                    m1.goAngle(float(data["m1"])).join()
-                except:
-                    pass
+                try: m1.goAngle(float(data["m1"])).join()
+                except: pass
 
             if "m2" in data and data["m2"]:
-                try:
-                    m2.goAngle(float(data["m2"])).join()
-                except:
-                    pass
+                try: m2.goAngle(float(data["m2"])).join()
+                except: pass
 
             for key in ("m1_jog", "m2_jog"):
                 if key in data:
@@ -332,13 +307,14 @@ if __name__ == "__main__":
 
     shared_lock = threading.Lock()
 
-    m1 = Stepper(shifter, shared_lock, 0)  # elevation
-    m2 = Stepper(shifter, shared_lock, 1)  # azimuth
+    m1 = Stepper(shifter, shared_lock, 0)
+    m2 = Stepper(shifter, shared_lock, 1)
 
     m1.zero()
     m2.zero()
 
-    threading.Thread(target=serve_web, args=(m1, m2),
+    threading.Thread(target=serve_web,
+                     args=(m1, m2),
                      daemon=True).start()
 
     try:
@@ -346,4 +322,3 @@ if __name__ == "__main__":
             time.sleep(1)
     except KeyboardInterrupt:
         GPIO.cleanup()
-        print("Exiting.")
