@@ -82,33 +82,29 @@ class Stepper:
         for _ in range(steps):
             self._step(direction)
 
-    def goAngle(self, target):
-        delta = (target - self.angle + 540) % 360 - 180
-        self.rotate(delta)
-
-    def zero(self):
-        self.angle = 0.0
-
-# ---------------------- Motor Worker ----------------------
-class MotorWorker(threading.Thread):
-    def __init__(self, motor):
+# ---------------------- Motor Controller ----------------------
+class MotorController(threading.Thread):
+    def __init__(self, m1, m2):
         super().__init__(daemon=True)
-        self.motor = motor
-        self.commands = queue.Queue()
+        self.m1 = m1
+        self.m2 = m2
+        self.commands = queue.Queue()  # each item: (motor, delta)
 
     def run(self):
         while True:
-            delta = self.commands.get()
-            if delta is None:
-                break
+            motor, delta = self.commands.get()
             try:
-                self.motor.rotate(delta)
+                motor.rotate(delta)
             except Exception as e:
                 logging.error(f"Motor error: {e}")
             self.commands.task_done()
 
-    def rotate(self, delta):
-        self.commands.put(delta)
+    def move_motor(self, motor, delta):
+        self.commands.put((motor, delta))
+
+    def move_absolute(self, motor, target_angle):
+        delta = target_angle - motor.angle
+        self.move_motor(motor, delta)
 
 # ---------------------- Laser ----------------------
 def test_laser():
@@ -124,24 +120,18 @@ def save_zero(m1, m2):
     calibration_offsets["m2"] = -m2.angle
     logging.info("Calibration saved.")
 
-def return_to_zero(m1, m2):
-    m1_delta = zero_angles["m1"] + calibration_offsets["m1"] - m1.angle
-    m2_delta = zero_angles["m2"] + calibration_offsets["m2"] - m2.angle
-    m1_worker.rotate(m1_delta)
-    m2_worker.rotate(m2_delta)
+def return_to_zero(controller, m1, m2):
+    controller.move_absolute(m1, zero_angles["m1"] + calibration_offsets["m1"])
+    controller.move_absolute(m2, zero_angles["m2"] + calibration_offsets["m2"])
     logging.info("Returning to zero.")
 
 # ---------------------- Aim at Team ----------------------
-def aim_at_team(m1_worker, m2_worker, target_team):
-    if self_team["id"] is None:
-        logging.warning("Self team not set; cannot aim.")
+def aim_at_team(controller, target_team):
+    if self_team["id"] is None or target_team not in positions.get("turrets", {}):
         return
-    if target_team not in positions.get("turrets", {}):
-        logging.warning(f"Target team {target_team} not found.")
-        return
+
     st = self_team["id"]
     if st not in positions["turrets"]:
-        logging.warning(f"Self team {st} not found.")
         return
 
     current_target_team["id"] = target_team
@@ -162,11 +152,8 @@ def aim_at_team(m1_worker, m2_worker, target_team):
     az_deg = math.degrees(math.atan2(dy, dx)) + calibration_offsets["m2"]
     el_deg = -math.degrees(math.atan2(dz, math.hypot(dx, dy))) + calibration_offsets["m1"]
 
-    delta_m1 = el_deg - m1_worker.motor.angle
-    delta_m2 = az_deg - m2_worker.motor.angle
-
-    m1_worker.rotate(delta_m1)
-    m2_worker.rotate(delta_m2)
+    controller.move_absolute(m1, el_deg)
+    controller.move_absolute(m2, az_deg)
 
     logging.info(f"Aiming at team {target_team}: az={az_deg:.2f}, el={el_deg:.2f}")
 
@@ -178,15 +165,15 @@ def parsePOSTdata(data):
     parsed = parse_qs(data[idx+4:], keep_blank_values=True)
     return {k:v[0] for k,v in parsed.items()}
 
-# ---------------------- Safe Web Page ----------------------
-def web_page_safe(m1_worker, m2_worker):
+# ---------------------- Web Page ----------------------
+def web_page(controller):
     try:
-        m1_angle = getattr(m1_worker.motor, "angle", 0.0)
-    except Exception:
+        m1_angle = getattr(controller.m1, "angle", 0.0)
+    except:
         m1_angle = 0.0
     try:
-        m2_angle = getattr(m2_worker.motor, "angle", 0.0)
-    except Exception:
+        m2_angle = getattr(controller.m2, "angle", 0.0)
+    except:
         m2_angle = 0.0
 
     def jog_buttons(name):
@@ -256,8 +243,8 @@ input[type="text"] {{ width:80px; text-align:center; }}
 </html>
 """.encode()
 
-# ---------------------- Safe Web Server ----------------------
-def serve_web_safe(m1_worker, m2_worker):
+# ---------------------- Web Server ----------------------
+def serve_web(controller):
     s = socket.socket()
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(('', 8080))
@@ -279,55 +266,37 @@ def serve_web_safe(m1_worker, m2_worker):
                 d = parsePOSTdata(msg)
                 logging.info(f"POST data from {addr}: {d}")
 
-                try:
-                    if "set_self_team" in d:
-                        self_team["id"] = d.get("self_team")
-                        logging.info(f"Set self team: {self_team['id']}")
-                except Exception as e:
-                    logging.error(f"Set team error: {e}")
+                # Set self team
+                if "set_self_team" in d:
+                    self_team["id"] = d.get("self_team")
 
-                try:
-                    if "aim_team" in d and d.get("team_box"):
-                        aim_at_team(m1_worker, m2_worker, d.get("team_box"))
-                except Exception as e:
-                    logging.error(f"Aim error: {e}")
+                # Aim
+                if "aim_team" in d and d.get("team_box"):
+                    aim_at_team(controller, d.get("team_box"))
 
-                try:
-                    for motor_name, worker in (("m1", m1_worker), ("m2", m2_worker)):
-                        if motor_name in d and d[motor_name]:
-                            delta = float(d[motor_name]) - getattr(worker.motor, "angle", 0.0)
-                            worker.rotate(delta)
-                except Exception as e:
-                    logging.error(f"Manual control error: {e}")
+                # Manual control
+                for motor_name, motor in (("m1", controller.m1), ("m2", controller.m2)):
+                    if motor_name in d and d[motor_name]:
+                        delta = float(d[motor_name]) - motor.angle
+                        controller.move_motor(motor, delta)
 
-                try:
-                    for k, worker in (("m1_jog", m1_worker), ("m2_jog", m2_worker)):
-                        if k in d:
-                            worker.rotate(float(d[k]))
-                except Exception as e:
-                    logging.error(f"Jog error: {e}")
+                # Jog buttons
+                for k, motor in (("m1_jog", controller.m1), ("m2_jog", controller.m2)):
+                    if k in d:
+                        controller.move_motor(motor, float(d[k]))
 
-                try:
-                    if "save_zero" in d:
-                        save_zero(m1_worker.motor, m2_worker.motor)
-                except Exception as e:
-                    logging.error(f"Save zero error: {e}")
+                # Calibration
+                if "save_zero" in d:
+                    save_zero(controller.m1, controller.m2)
+                if "return_zero" in d:
+                    return_to_zero(controller, controller.m1, controller.m2)
 
-                try:
-                    if "return_zero" in d:
-                        return_to_zero(m1_worker.motor, m2_worker.motor)
-                except Exception as e:
-                    logging.error(f"Return zero error: {e}")
+                # Laser
+                if "laser" in d:
+                    test_laser()
 
-                try:
-                    if "laser" in d:
-                        test_laser()
-                except Exception as e:
-                    logging.error(f"Laser test error: {e}")
-
-            # Send page safely
             conn.send(b"HTTP/1.1 200 OK\r\nContent-Type:text/html\r\n\r\n")
-            conn.sendall(web_page_safe(m1_worker, m2_worker))
+            conn.sendall(web_page(controller))
         except Exception as e:
             logging.error(f"Web server error for {addr}: {e}")
         finally:
@@ -341,15 +310,16 @@ if __name__ == "__main__":
 
     m1 = Stepper(shifter, lock, 0)
     m2 = Stepper(shifter, lock, 1)
+
     m1.zero()
     m2.zero()
 
-    m1_worker = MotorWorker(m1)
-    m2_worker = MotorWorker(m2)
-    m1_worker.start()
-    m2_worker.start()
+    # Single Motor Controller
+    controller = MotorController(m1, m2)
+    controller.start()
 
-    threading.Thread(target=serve_web_safe, args=(m1_worker, m2_worker), daemon=True).start()
+    # Start web server
+    threading.Thread(target=serve_web, args=(controller,), daemon=True).start()
 
     try:
         while True:
