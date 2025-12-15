@@ -66,7 +66,7 @@ class Stepper:
         self.s = shifter
         self.lock = lock
         self.index = index
-        self.angle = 0.0
+        self.angle = 0.0  # signed for elevation, modulo 360 for azimuth
         self.step_state = 0
         self.bit_start = 4 * index
 
@@ -82,8 +82,13 @@ class Stepper:
             self.s.shiftByte(final)
             self.s.last_value = final
 
-        self.angle = (self.angle +
-                      direction / Stepper.steps_per_degree) % 360
+        # Update angle
+        delta_angle = direction / Stepper.steps_per_degree
+        if self.index == 0:  # elevation
+            self.angle += delta_angle  # signed, no wrapping
+        else:  # azimuth
+            self.angle = (self.angle + delta_angle) % 360
+
         time.sleep(Stepper.delay / 1e6)
 
     def _rotate(self, delta):
@@ -98,7 +103,10 @@ class Stepper:
         return t
 
     def goAngle(self, target):
-        delta = (target - self.angle + 540) % 360 - 180
+        if self.index == 0:  # elevation
+            delta = target - self.angle
+        else:  # azimuth
+            delta = (target - self.angle + 540) % 360 - 180
         return self.rotate(delta)
 
     def zero(self):
@@ -126,7 +134,7 @@ def return_to_zero(m1, m2):
     m2.goAngle(zero_angles["m2"] + calibration_offsets["m2"]).join()
 
 # --------------------------------------------------
-# Aim-at-Team with correct azimuth and elevation
+# Aim-at-Team with correct height and shortest-path
 # --------------------------------------------------
 def aim_at_team(m1, m2, target_team):
     if self_team["id"] is None:
@@ -140,13 +148,11 @@ def aim_at_team(m1, m2, target_team):
 
     current_target_team["id"] = target_team
 
-    # Turret positions
     r_self = positions["turrets"][st]["r"]
     th_self = positions["turrets"][st]["theta"]
     r_tgt  = positions["turrets"][target_team]["r"]
     th_tgt = positions["turrets"][target_team]["theta"]
 
-    # Convert polar to Cartesian
     x_self = r_self * math.cos(th_self)
     y_self = r_self * math.sin(th_self)
     x_tgt  = r_tgt * math.cos(th_tgt)
@@ -154,28 +160,24 @@ def aim_at_team(m1, m2, target_team):
 
     dx = x_tgt - x_self
     dy = y_tgt - y_self
-    dz = turret_height_other - turret_height_self  # negative if target is below turret
+    dz = turret_height_other - turret_height_self  # negative if target below turret
 
-    # Absolute azimuth in degrees
-    az_deg = math.degrees(math.atan2(dy, dx))
-    az_deg = (az_deg + calibration_offsets["m2"]) % 360
+    # Absolute azimuth (0–360°)
+    az_deg = math.degrees(math.atan2(dy, dx)) + calibration_offsets["m2"]
+    az_deg %= 360
 
-    # Signed elevation in degrees (negative = down)
-    el_deg = math.degrees(math.atan2(dz, math.hypot(dx, dy)))
-    el_deg += calibration_offsets["m1"]  # apply calibration offset
+    # Signed elevation (negative = down)
+    el_deg = math.degrees(math.atan2(dz, math.hypot(dx, dy))) + calibration_offsets["m1"]
 
     # Shortest-path deltas
     delta_az = (az_deg - m2.angle + 540) % 360 - 180
-    delta_el = el_deg - m1.angle  # signed, can be negative
+    delta_el = el_deg - m1.angle  # signed
 
     print(f"Aiming from m2={m2.angle:.2f}° to az={az_deg:.2f}° → delta={delta_az:.2f}°")
     print(f"Aiming from m1={m1.angle:.2f}° to el={el_deg:.2f}° → delta={delta_el:.2f}°")
 
-    # Move motors
     m1.goAngle(m1.angle + delta_el).join()
     m2.goAngle(m2.angle + delta_az).join()
-
-
 # --------------------------------------------------
 # POST Parsing
 # --------------------------------------------------
