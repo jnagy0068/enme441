@@ -53,6 +53,7 @@ zero_positions = {"m1": 0.0, "m2": 0.0}
 def normalize_deg(angle):
     """Normalize angle to [-180, 180)."""
     a = ((angle + 180.0) % 360.0) - 180.0
+    # convert -180.0 to +180.0 consistently if desired (keep -180)
     return a
 
 # --- Stepper Motor Class (uses threads so .angle is accurate in main process) ---
@@ -82,6 +83,7 @@ class Stepper:
             for val in myArray:
                 final |= val
             self.s.shiftByte(final)
+        # update angle in same process (degrees)
         self.angle = (self.angle + direction/Stepper.steps_per_degree) % 360.0
         time.sleep(Stepper.delay / 1e6)
 
@@ -91,6 +93,7 @@ class Stepper:
         for _ in range(steps):
             self._step(direction)
 
+    # start a thread (not a process) so angle stays updated in parent
     def rotate(self, delta):
         t = threading.Thread(target=self._rotate, args=(delta,), daemon=True)
         t.start()
@@ -98,7 +101,10 @@ class Stepper:
         return t
 
     def goAngle(self, target):
-        delta = normalize_deg(target - self.angle)
+        # compute smallest rotation to target (target is absolute motor angle)
+        # normalize target to [-180,180) internal representation optional
+        # delta computed so motor moves shortest path
+        delta = (target - self.angle + 540.0) % 360.0 - 180.0
         return self.rotate(delta)
 
     def zero(self):
@@ -112,22 +118,33 @@ def test_laser():
 
 # --- Calibration & Zero Functions ---
 def save_zero(m1, m2):
+    """
+    Save the *current absolute motor angles* as the physical zero.
+    Also print a normalized and raw view for debugging.
+    """
     zero_positions["m1"] = m1.angle
     zero_positions["m2"] = m2.angle
+
+    # Keep calibration offsets untouched; calibration is for aiming bias corrections
     print("Saved zero_positions (raw):", {"m1": m1.angle, "m2": m2.angle})
     print("Saved zero_positions (normalized):", {"m1": normalize_deg(m1.angle), "m2": normalize_deg(m2.angle)})
 
 def return_to_zero(m1, m2):
+    """
+    Return motors to the saved absolute angles in zero_positions.
+    These are absolute motor angles (not negatives).
+    """
     tgt_m1 = zero_positions.get("m1", 0.0)
     tgt_m2 = zero_positions.get("m2", 0.0)
     print("Returning to zero... targets (raw):", {"m1": tgt_m1, "m2": tgt_m2})
     print("Returning to zero... targets (norm):", {"m1": normalize_deg(tgt_m1), "m2": normalize_deg(tgt_m2)})
+
     p1 = m1.goAngle(tgt_m1)
     p2 = m2.goAngle(tgt_m2)
     p1.join()
     p2.join()
 
-# --- Correct Aim at Team ---
+# --- Correct Aim at Team for Circumference with center-zero elevation compensation ---
 def aim_at_team(m1, m2, target_team):
     if self_team["id"] is None:
         print("ERROR: Self team number not set.")
@@ -141,59 +158,74 @@ def aim_at_team(m1, m2, target_team):
         print("ERROR: This turret's team number not in positions:", st)
         return
 
-    # --- Turret positions ---
-    th_self = positions["turrets"][st]["theta"]
-    r_self  = positions["turrets"][st]["r"]
-    th_tgt  = positions["turrets"][target_team]["theta"]
-    r_tgt   = positions["turrets"][target_team]["r"]
+    # read r and theta from JSON (assume units consistent e.g. cm)
+    r_self  = float(positions["turrets"][st]["r"])
+    th_self = float(positions["turrets"][st]["theta"])
+    r_tgt   = float(positions["turrets"][target_team]["r"])
+    th_tgt  = float(positions["turrets"][target_team]["theta"])
 
-    # --- Cartesian coordinates ---
+    # Cartesian positions in same unit (cm)
     x_self = r_self * math.cos(th_self)
     y_self = r_self * math.sin(th_self)
-    z_self = turret_height_self
+    x_tgt  = r_tgt  * math.cos(th_tgt)
+    y_tgt  = r_tgt  * math.sin(th_tgt)
 
-    x_tgt  = r_tgt * math.cos(th_tgt)
-    y_tgt  = r_tgt * math.sin(th_tgt)
-    z_tgt  = turret_height_other
+    # heights (cm)
+    z_self = float(turret_height_self)
+    z_tgt  = float(turret_height_other)
 
-    # --- Relative vector to target ---
+    # vector from turret to target
     dx = x_tgt - x_self
     dy = y_tgt - y_self
     dz = z_tgt - z_self
-    horiz_dist = math.hypot(dx, dy)
 
-    # --- Compute absolute azimuth and elevation angles ---
-    az_target = math.degrees(math.atan2(dy, dx))
-    el_target = math.degrees(math.atan2(dz, horiz_dist))
+    horizontal_dist = math.hypot(dx, dy)  # ground-plane distance (cm)
 
-    # --- Compute delta relative to saved zero and current motor angle ---
-    az_delta = normalize_deg(az_target - zero_positions["m2"] - m2.angle + calibration["az_offset"])
-    el_delta = normalize_deg(el_target - zero_positions["m1"] - m1.angle + calibration["el_offset"])
+    # Absolute elevation (wrt horizontal plane) to the target
+    el_target_abs = math.atan2(dz, horizontal_dist)   # radians
 
-    print(f"Aiming at team {target_team}: az_delta={az_delta:.2f}°, el_delta={el_delta:.2f}° | "
-          f"horiz_dist={horiz_dist:.2f} cm, dz={dz:.2f} cm")
+    # Absolute elevation to the center (this is your physical zero)
+    dz_center = 0.0 - z_self
+    dist_to_center = r_self
+    el_center_abs = math.atan2(dz_center, dist_to_center)  # radians
 
-    # --- Rotate motors along shortest path ---
-    p1 = m1.rotate(el_delta)
-    p2 = m2.rotate(az_delta)
-    p1.join()
-    p2.join()
+    # Elevation command = difference from center-zero (in degrees)
+    el_rel_rad = el_target_abs - el_center_abs
+    el_deg = el_rel_rad * 180.0 / math.pi
 
+    # Azimuth: absolute azimuth to target in world coords
+    az_world = math.atan2(dy, dx)
+    turret_facing = th_self + math.pi   # turret zero points to center
+    az_rel = az_world - turret_facing
+    az_deg = -az_rel * 180.0 / math.pi  # NEGATE to match manual controls convention
 
-    # --- Compute absolute azimuth and elevation ---
-    az_target = math.degrees(math.atan2(dy, dx))
-    horiz_dist = math.hypot(dx, dy)
-    el_target = math.degrees(math.atan2(dz, horiz_dist))
+    # normalize azimuth to [-180, 180)
+    az_deg = normalize_deg(az_deg)
 
-    # --- Shortest-path deltas relative to current motor angles ---
-    az_delta = normalize_deg(az_target - m2.angle + calibration["az_offset"])
-    el_delta = normalize_deg(el_target - m1.angle + calibration["el_offset"])
+    # Apply calibration offsets saved for aiming bias (not zero positions)
+    az_deg += calibration.get("az_offset", 0.0)
+    el_deg += calibration.get("el_offset", 0.0)
 
-    print(f"Aiming at team {target_team}: az_delta={az_delta:.2f}°, el_delta={el_delta:.2f}° | "
-          f"horiz_dist={horiz_dist:.2f} cm, dz={dz:.2f} cm")
+    print(
+        f"Aiming at team {target_team}: az={az_deg:.2f}°, el={el_deg:.2f}° | "
+        f"horiz_dist={horizontal_dist:.2f} cm, dz={dz:.2f} cm, "
+        f"el_target_abs={el_target_abs*180/math.pi:.4f}°, el_center_abs={el_center_abs*180/math.pi:.4f}°"
+    )
 
-    p1 = m1.rotate(el_delta)
-    p2 = m2.rotate(az_delta)
+    # target absolute angles for motors:
+    # elevation motor target = zero_positions['m1'] + el_deg
+    # azimuth motor target = zero_positions['m2'] + az_deg
+    tgt_el_abs = zero_positions.get("m1", 0.0) + el_deg
+    tgt_az_abs = zero_positions.get("m2", 0.0) + az_deg
+
+    # Normalize targets into [0, 360) or keep raw; Stepper.goAngle handles shortest path
+    # but for readability we normalize for print
+    print("Computed motor targets (raw):", {"el": tgt_el_abs, "az": tgt_az_abs})
+    print("Computed motor targets (norm):", {"el": normalize_deg(tgt_el_abs), "az": normalize_deg(tgt_az_abs)})
+
+    # Rotate motors (elevation = m1, azimuth = m2)
+    p1 = m1.goAngle(tgt_el_abs)
+    p2 = m2.goAngle(tgt_az_abs)
     p1.join()
     p2.join()
 
@@ -206,7 +238,7 @@ def parsePOSTdata(data):
     parsed = parse_qs(post, keep_blank_values=True)
     return {k:v[0] for k,v in parsed.items()}
 
-# --- Web Page ---
+# --- Web Page with Manual Jog Buttons and current-angle display ---
 def web_page(m1_angle, m2_angle):
     def jog_buttons(name):
         buttons = [-90, -45, -15, -5, -1, 1, 5, 15, 45, 90]
@@ -278,13 +310,22 @@ def serve_web(m1, m2):
         if msg.startswith("POST"):
             data = parsePOSTdata(msg)
         
+            # -----------------------------
+            # 1. Set self team
+            # -----------------------------
             if "set_self_team" in data and data.get("self_team", "").strip() != "":
                 self_team["id"] = data["self_team"].strip()
                 print("This turret's team set to:", self_team["id"])
         
+            # -----------------------------
+            # 2. Aim at another team
+            # -----------------------------
             if "aim_team" in data and data.get("team_box", "").strip() != "":
                 aim_at_team(m1, m2, data["team_box"].strip())
         
+            # -----------------------------
+            # 3. Jog buttons (rotate by delta)
+            # -----------------------------
             if "m1_jog" in data:
                 try:
                     delta = float(data["m1_jog"])
@@ -301,7 +342,11 @@ def serve_web(m1, m2):
                 except:
                     pass
         
+            # -----------------------------
+            # 4. Manual absolute control ONLY when clicking "Rotate Motors"
+            # -----------------------------
             if any(v == "Rotate Motors" for v in data.values()):
+                # elevation setpoint
                 if "m1" in data and data["m1"].strip() != "":
                     try:
                         el = float(data["m1"])
@@ -310,6 +355,7 @@ def serve_web(m1, m2):
                     except:
                         pass
         
+                # azimuth setpoint
                 if "m2" in data and data["m2"].strip() != "":
                     try:
                         az = float(data["m2"])
@@ -318,12 +364,18 @@ def serve_web(m1, m2):
                     except:
                         pass
         
+            # -----------------------------
+            # 5. Calibration
+            # -----------------------------
             if "return_zero" in data:
                 return_to_zero(m1, m2)
         
             if "save_zero" in data:
                 save_zero(m1, m2)
         
+            # -----------------------------
+            # 6. Laser test (NO motor movement)
+            # -----------------------------
             if "laser" in data:
                 test_laser()
 
@@ -345,6 +397,7 @@ if __name__ == "__main__":
     m1 = Stepper(s, lock1, 0)  # elevation
     m2 = Stepper(s, lock2, 1)  # azimuth
 
+    # initialize zero_positions to current motor angles (whatever motors start at)
     zero_positions["m1"] = m1.angle
     zero_positions["m2"] = m2.angle
     print("Initial zero_positions (raw):", zero_positions)
