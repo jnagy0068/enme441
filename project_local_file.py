@@ -229,6 +229,52 @@ def aim_at_team(m1, m2, target_team):
     p1.join()
     p2.join()
 
+def aim_and_laser_sequence(m1, m2):
+    if self_team["id"] is None:
+        print("ERROR: Self team not set.")
+        return
+
+    print("Starting full aim + laser sequence (sorted by theta)")
+
+    # ---- Turrets (sorted by theta) ----
+    turret_items = [
+        (tid, data)
+        for tid, data in positions.get("turrets", {}).items()
+        if tid != self_team["id"]
+    ]
+
+    turret_items.sort(key=lambda item: float(item[1]["theta"]))
+
+    for team_id, _ in turret_items:
+        print("Targeting turret:", team_id)
+        aim_at_team(m1, m2, team_id)
+
+        GPIO.output(laser, GPIO.HIGH)
+        time.sleep(3)
+        GPIO.output(laser, GPIO.LOW)
+
+        time.sleep(0.5)
+
+    # ---- Globes (sorted by theta) ----
+    globe_items = list(positions.get("globes", {}).items())
+    globe_items.sort(key=lambda item: float(item[1]["theta"]))
+
+    for globe_id, globe_data in globe_items:
+        print("Targeting globe:", globe_id)
+
+        # temporarily inject globe as a turret target
+        positions["turrets"]["__globe__"] = globe_data
+        aim_at_team(m1, m2, "__globe__")
+        del positions["turrets"]["__globe__"]
+
+        GPIO.output(laser, GPIO.HIGH)
+        time.sleep(3)
+        GPIO.output(laser, GPIO.LOW)
+
+        time.sleep(0.5)
+
+    print("Sequence complete")
+
 # --- POST Parsing ---
 def parsePOSTdata(data):
     idx = data.find("\r\n\r\n")
@@ -285,6 +331,8 @@ def web_page(m1_angle, m2_angle):
 
             <h3>Laser</h3>
             <input type="submit" name="laser" value="Test Laser (1s)"><br>
+            <h3>Automatic Sequence</h3>
+            <input type="submit" name="auto_sequence" value="Fire!">
         </form>
     </body>
     </html>
@@ -378,7 +426,16 @@ def serve_web(m1, m2):
             # -----------------------------
             if "laser" in data:
                 test_laser()
-
+            # -----------------------------
+            # 7. Automatic aim + laser sequence
+            # -----------------------------
+            if "auto_sequence" in data:
+                t = threading.Thread(
+                    target=aim_and_laser_sequence,
+                    args=(m1, m2),
+                    daemon=True
+                )
+                t.start()
         try:
             response = web_page(m1.angle, m2.angle)
             conn.send(b"HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n")
