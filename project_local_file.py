@@ -101,20 +101,20 @@ class Stepper:
         return t
 
     def goAngle(self, target):
-    # shortest-path delta
-    delta = (target - self.angle + 540.0) % 360.0 - 180.0
-    # degrees of backlash compensation (tune: 1.5–3.0)
-    BACKLASH_DEG = 2.0
-    # If we would approach from the negative direction,
-    # overshoot then approach positively
-    if delta < 0:
-        # overshoot past target
-        p1 = self.rotate(delta - BACKLASH_DEG)
-        p1.join()
-        # final approach (positive direction)
-        return self.rotate(BACKLASH_DEG)
-    # normal move (already approaching positive)
-    return self.rotate(delta)
+        # shortest-path delta
+        delta = (target - self.angle + 540.0) % 360.0 - 180.0
+        # degrees of backlash compensation (tune: 1.5–3.0)
+        BACKLASH_DEG = 2.0
+        # If we would approach from the negative direction,
+        # overshoot then approach positively
+        if delta < 0:
+            # overshoot past target
+            p1 = self.rotate(delta - BACKLASH_DEG)
+            p1.join()
+            # final approach (positive direction)
+            return self.rotate(BACKLASH_DEG)
+        # normal move (already approaching positive)
+        return self.rotate(delta)
 
     def zero(self):
         self.angle = 0.0
