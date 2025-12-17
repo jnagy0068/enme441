@@ -307,8 +307,8 @@ def web_page(m1_angle, m2_angle):
         <hr>
 
         <form action="/" method="POST">
-            <h3>This Turret's Team Number</h3>
-            <input type="text" name="self_team" placeholder="Your team number"><br>
+            <h3>Team Number</h3>
+            <input type="text" name="self_team" placeholder="Team number"><br>
             <input type="submit" name="set_self_team" value="Set This Turret's Team"><br>
 
             <h3>Aim at Another Team</h3>
@@ -317,10 +317,8 @@ def web_page(m1_angle, m2_angle):
 
             <h3>Manual Motor Control</h3>
             <h4>Azimuth</h4>
-            <input type="text" name="m2" value="{m2_angle}"><br>
             {jog_buttons('m2')}
             <h4>Elevation</h4>
-            <input type="text" name="m1" value="{m1_angle}"><br>
             {jog_buttons('m1')}
 
             <br><input type="submit" value="Rotate Motors"><br>
