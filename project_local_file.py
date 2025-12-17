@@ -11,7 +11,7 @@ import multiprocessing
 
 # ---------------- Config / Units (centimeters)
 turret_height_self = 34.0     # your turret laser height (cm)
-turret_height_other = 0.0    # all other turrets' laser height (cm)
+turret_height_other = 3.0    # all other turrets' laser height (cm)
 
 # --- GPIO Setup ---
 GPIO.setmode(GPIO.BCM)
