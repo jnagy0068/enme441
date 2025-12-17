@@ -12,7 +12,7 @@ import multiprocessing
 # ---------------- Config / Units (centimeters)
 turret_height_self = 34.0     # your turret laser height (cm)
 turret_height_other = 3.0    # all other turrets' laser height (cm)
-globe_z_offset = 0.0  # cm; adjust if globes are higher than default
+globe_z_offset = 15.0  # cm; adjust if globes are higher than default
 
 # --- GPIO Setup ---
 GPIO.setmode(GPIO.BCM)
