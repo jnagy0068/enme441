@@ -191,7 +191,7 @@ def aim_at_team(m1, m2, target_team):
 
     # heights (cm)
     z_self = float(turret_height_self)
-    z_tgt  = float(turret_height_other)
+    z_tgt = float(positions["turrets"][target_team].get("z", turret_height_other))
 
     # vector from turret to target
     dx = x_tgt - x_self
