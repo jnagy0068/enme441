@@ -90,8 +90,18 @@ class Stepper:
     def _rotate(self, delta):
         direction = self._sgn(delta)
         steps = int(abs(delta) * Stepper.steps_per_degree)
-        for _ in range(steps):
+    
+        for i in range(steps):
+            # crude acceleration ramp
+            if i < 50:
+                delay = 1500 - i*20
+            elif steps - i < 50:
+                delay = 1500 - (steps - i)*20
+            else:
+                delay = 500
+    
             self._step(direction)
+            time.sleep(delay / 1e6)
 
     # start a thread (not a process) so angle stays updated in parent
     def rotate(self, delta):
@@ -265,21 +275,25 @@ def aim_and_laser_sequence(m1, m2):
         time.sleep(0.5)
 
     # ---- Globes (sorted by theta) ----
-    globe_items = list(positions.get("globes", {}).items())
+    globes = positions.get("globes", [])
+    # normalize to list of (id, data)
+    if isinstance(globes, dict):
+        globe_items = list(globes.items())
+    elif isinstance(globes, list):
+        globe_items = [(str(i), g) for i, g in enumerate(globes)]
+    else:
+        globe_items = []
+    
     globe_items.sort(key=lambda item: float(item[1]["theta"]))
-
-    for globe_id, globe_data in globe_items:
-        print("Targeting globe:", globe_id)
-
-        # temporarily inject globe as a turret target
-        positions["turrets"]["__globe__"] = globe_data
+    
+    for gid, gdata in globe_items:
+        positions["turrets"]["__globe__"] = gdata
         aim_at_team(m1, m2, "__globe__")
         del positions["turrets"]["__globe__"]
-
+    
         GPIO.output(laser, GPIO.HIGH)
         time.sleep(3)
         GPIO.output(laser, GPIO.LOW)
-
         time.sleep(0.5)
 
     print("Sequence complete")
