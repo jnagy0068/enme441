@@ -22,6 +22,8 @@ GPIO.output(laser, GPIO.LOW)
 # --- Shared Memory for Shifter bits (still fine for threading) ---
 myArray = multiprocessing.Array('i', 2)
 
+stop_auto_event = threading.Event()
+
 # --- Load positions from local JSON ---
 positions = {}
 
@@ -249,6 +251,7 @@ def aim_at_team(m1, m2, target_team):
     p2.join()
 
 def aim_and_laser_sequence(m1, m2):
+    stop_auto_event.clear()  # reset before starting
     if self_team["id"] is None:
         print("ERROR: Self team not set.")
         return
@@ -265,6 +268,9 @@ def aim_and_laser_sequence(m1, m2):
     turret_items.sort(key=lambda item: float(item[1]["theta"]))
 
     for team_id, _ in turret_items:
+        if stop_auto_event.is_set():
+            print("Auto-fire stopped")
+            return
         print("Targeting turret:", team_id)
         aim_at_team(m1, m2, team_id)
 
@@ -287,6 +293,9 @@ def aim_and_laser_sequence(m1, m2):
     globe_items.sort(key=lambda item: float(item[1]["theta"]))
     
     for gid, gdata in globe_items:
+        if stop_auto_event.is_set():
+            print("Auto-fire stopped")
+            return
         positions["turrets"]["__globe__"] = gdata
         aim_at_team(m1, m2, "__globe__")
         del positions["turrets"]["__globe__"]
@@ -353,7 +362,8 @@ def web_page(m1_angle, m2_angle):
             <h3>Laser</h3>
             <input type="submit" name="laser" value="Test Laser (1s)"><br>
             <h3>Automatic Sequence</h3>
-            <input type="submit" name="auto_sequence" value="Fire!">
+            <input type="submit" name="auto_sequence" value="Fire!"><br>
+            <input type="submit" name="stop_auto">Abort!</button><br>
         </form>
     </body>
     </html>
@@ -447,6 +457,9 @@ def serve_web(m1, m2):
             # -----------------------------
             if "laser" in data:
                 test_laser()
+
+            if "stop_auto" in data:
+                stop_auto_event.set()
             # -----------------------------
             # 7. Automatic aim + laser sequence
             # -----------------------------
