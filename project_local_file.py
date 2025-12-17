@@ -287,7 +287,7 @@ def parsePOSTdata(data):
 # --- Web Page with Manual Jog Buttons and current-angle display ---
 def web_page(m1_angle, m2_angle):
     def jog_buttons(name):
-        buttons = [-90, -45, -15, -5, -1, 1, 5, 15, 45, 90]
+        buttons = [-45, -15, -5, -1, -0.5, -0.1, 0.1, 0.5, 1, 5, 15, 45]
         html_buttons = ""
         for b in buttons:
             html_buttons += f'<button name="{name}_jog" value="{b}">{b:+}°</button> '
