@@ -12,6 +12,7 @@ import multiprocessing
 # ---------------- Config / Units (centimeters)
 turret_height_self = 34.0     # your turret laser height (cm)
 turret_height_other = 3.0    # all other turrets' laser height (cm)
+globe_z_offset = 0.0  # cm; adjust if globes are higher than default
 
 # --- GPIO Setup ---
 GPIO.setmode(GPIO.BCM)
@@ -194,6 +195,11 @@ def aim_at_team(m1, m2, target_team):
     # heights (cm)
     z_self = float(turret_height_self)
     z_tgt = float(positions["turrets"][target_team].get("z", turret_height_other))
+
+    # Apply globe offset only for globes
+    if target_team.startswith("__globe__"):
+        z_tgt += globe_z_offset
+
 
     # vector from turret to target
     dx = x_tgt - x_self
