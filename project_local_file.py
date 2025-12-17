@@ -166,80 +166,80 @@ def return_to_zero(m1, m2):
     p2.join()
 
 # --- Correct Aim at Team for Circumference with center-zero elevation compensation ---
-    def aim_at_team(m1, m2, target_team):
-        """
-        Aim the turret motors at a given target (turret or globe),
-        using absolute elevation to account for z differences.
-        """
-        if self_team["id"] is None:
-            print("ERROR: Self team number not set.")
-            return
-        if target_team not in positions.get("turrets", {}):
-            print("Target not found in JSON:", target_team)
-            return
-    
-        st = self_team["id"]
-        if st not in positions["turrets"]:
-            print("ERROR: This turret's team number not in positions:", st)
-            return
-    
-        # Read polar coordinates
-        r_self  = float(positions["turrets"][st]["r"])
-        th_self = float(positions["turrets"][st]["theta"])
-        r_tgt   = float(positions["turrets"][target_team]["r"])
-        th_tgt  = float(positions["turrets"][target_team]["theta"])
-    
-        # Cartesian coordinates
-        x_self = r_self * math.cos(th_self)
-        y_self = r_self * math.sin(th_self)
-        x_tgt  = r_tgt  * math.cos(th_tgt)
-        y_tgt  = r_tgt  * math.sin(th_tgt)
-    
-        # Heights
-        z_self = float(turret_height_self)
-        # Use target z if present, otherwise default turret height
-        z_tgt = float(positions["turrets"][target_team].get("z", turret_height_other))
-    
-        # Vector from turret to target
-        dx = x_tgt - x_self
-        dy = y_tgt - y_self
-        dz = z_tgt - z_self
-    
-        # Horizontal distance
-        horizontal_dist = math.hypot(dx, dy)
-    
-        # Absolute elevation
-        el_target_abs = math.atan2(dz, horizontal_dist)
-        el_deg = el_target_abs * 180.0 / math.pi
-        # Apply calibration offset
-        el_deg += calibration.get("el_offset", 0.0)
-    
-        # Absolute azimuth
-        az_world = math.atan2(dy, dx)
-        turret_facing = th_self + math.pi  # turret zero points to center
-        az_rel = az_world - turret_facing
-        az_deg = -az_rel * 180.0 / math.pi
-        az_deg += calibration.get("az_offset", 0.0)
-        az_deg = normalize_deg(az_deg)
-    
-        # Compute motor targets
-        tgt_el_abs = zero_positions.get("m1", 0.0) + el_deg
-        tgt_az_abs = zero_positions.get("m2", 0.0) + az_deg
-    
-        # Debug info
-        print(
-            f"Aiming at team {target_team}: az={az_deg:.2f}°, el={el_deg:.2f}° | "
-            f"horiz_dist={horizontal_dist:.2f} cm, dz={dz:.2f} cm, "
-            f"el_target_abs={el_target_abs*180/math.pi:.4f}°"
-        )
-        print("Computed motor targets (raw):", {"el": tgt_el_abs, "az": tgt_az_abs})
-        print("Computed motor targets (norm):", {"el": normalize_deg(tgt_el_abs), "az": normalize_deg(tgt_az_abs)})
-    
-        # Rotate motors (elevation = m1, azimuth = m2)
-        p1 = m1.goAngle(tgt_el_abs)
-        p2 = m2.goAngle(tgt_az_abs)
-        p1.join()
-        p2.join()
+def aim_at_team(m1, m2, target_team):
+    """
+    Aim the turret motors at a given target (turret or globe),
+    using absolute elevation to account for z differences.
+    """
+    if self_team["id"] is None:
+        print("ERROR: Self team number not set.")
+        return
+    if target_team not in positions.get("turrets", {}):
+        print("Target not found in JSON:", target_team)
+        return
+
+    st = self_team["id"]
+    if st not in positions["turrets"]:
+        print("ERROR: This turret's team number not in positions:", st)
+        return
+
+    # Read polar coordinates
+    r_self  = float(positions["turrets"][st]["r"])
+    th_self = float(positions["turrets"][st]["theta"])
+    r_tgt   = float(positions["turrets"][target_team]["r"])
+    th_tgt  = float(positions["turrets"][target_team]["theta"])
+
+    # Cartesian coordinates
+    x_self = r_self * math.cos(th_self)
+    y_self = r_self * math.sin(th_self)
+    x_tgt  = r_tgt  * math.cos(th_tgt)
+    y_tgt  = r_tgt  * math.sin(th_tgt)
+
+    # Heights
+    z_self = float(turret_height_self)
+    # Use target z if present, otherwise default turret height
+    z_tgt = float(positions["turrets"][target_team].get("z", turret_height_other))
+
+    # Vector from turret to target
+    dx = x_tgt - x_self
+    dy = y_tgt - y_self
+    dz = z_tgt - z_self
+
+    # Horizontal distance
+    horizontal_dist = math.hypot(dx, dy)
+
+    # Absolute elevation
+    el_target_abs = math.atan2(dz, horizontal_dist)
+    el_deg = el_target_abs * 180.0 / math.pi
+    # Apply calibration offset
+    el_deg += calibration.get("el_offset", 0.0)
+
+    # Absolute azimuth
+    az_world = math.atan2(dy, dx)
+    turret_facing = th_self + math.pi  # turret zero points to center
+    az_rel = az_world - turret_facing
+    az_deg = -az_rel * 180.0 / math.pi
+    az_deg += calibration.get("az_offset", 0.0)
+    az_deg = normalize_deg(az_deg)
+
+    # Compute motor targets
+    tgt_el_abs = zero_positions.get("m1", 0.0) + el_deg
+    tgt_az_abs = zero_positions.get("m2", 0.0) + az_deg
+
+    # Debug info
+    print(
+        f"Aiming at team {target_team}: az={az_deg:.2f}°, el={el_deg:.2f}° | "
+        f"horiz_dist={horizontal_dist:.2f} cm, dz={dz:.2f} cm, "
+        f"el_target_abs={el_target_abs*180/math.pi:.4f}°"
+    )
+    print("Computed motor targets (raw):", {"el": tgt_el_abs, "az": tgt_az_abs})
+    print("Computed motor targets (norm):", {"el": normalize_deg(tgt_el_abs), "az": normalize_deg(tgt_az_abs)})
+
+    # Rotate motors (elevation = m1, azimuth = m2)
+    p1 = m1.goAngle(tgt_el_abs)
+    p2 = m2.goAngle(tgt_az_abs)
+    p1.join()
+    p2.join()
 
 def aim_and_laser_sequence(m1, m2):
     stop_auto_event.clear()  # reset before starting
