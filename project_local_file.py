@@ -363,7 +363,7 @@ def web_page(m1_angle, m2_angle):
             <input type="submit" name="laser" value="Test Laser (1s)"><br>
             <h3>Automatic Sequence</h3>
             <input type="submit" name="auto_sequence" value="Fire!"><br>
-            <input type="submit" name="stop_auto">Abort!</button><br>
+            <input type="submit" name="stop_auto" value="Abort!"><br>
         </form>
     </body>
     </html>
