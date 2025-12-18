@@ -1,3 +1,6 @@
+# Jacob Nagy and Andy Pu (Team 16) Project Code
+# Used code from previous labs and ddevoe-umd Github repository
+# ChatGPT used for help with the 3d vector math and debugging
 import time
 import threading
 import socket
@@ -10,26 +13,21 @@ import math
 import multiprocessing
 import requests
 
-# ---------------- Config / Units (centimeters)
-turret_height_self = 34.0     # your turret laser height (cm)
-turret_height_other = 3.0    # all other turrets' laser height (cm)
-globe_z_offset = 15.0  # cm; adjust if globes are higher than default
+turret_height_self = 34.0     # turret height (cm)
+turret_height_other = 3.0    # all other turrets height
+globe_z_offset = 15.0  # turret not aiming high enough to hit globes
 
-# --- GPIO Setup ---
 GPIO.setmode(GPIO.BCM)
 laser = 22
 GPIO.setup(laser, GPIO.OUT)
 GPIO.output(laser, GPIO.LOW)
 
-# --- Shared Memory for Shifter bits (still fine for threading) ---
 myArray = multiprocessing.Array('i', 2)
 
 stop_auto_event = threading.Event()
 
-
-# --- Load positions from IP ---
 positions = {}
-JSON_URL = "http://192.168.1.254:8000/positions.json"  # change to your router's URL
+JSON_URL = "http://192.168.1.254:8000/positions.json"
 
 def load_positions():
     global positions
@@ -45,23 +43,19 @@ def load_positions():
 
 load_positions()
 
-#  Turret and Calibration Data -
 calibration = {"az_offset": 0.0, "el_offset": 0.0}
 self_team = {"id": None}
 
-# New: store absolute motor angles that correspond to your *physical zero*
 zero_positions = {"m1": 0.0, "m2": 0.0}
 
 def normalize_deg(angle):
     """Normalize angle to [-180, 180)."""
     a = ((angle + 180.0) % 360.0) - 180.0
-    # convert -180.0 to +180.0 consistently if desired (keep -180)
     return a
 
-# --- Stepper Motor Class (uses threads so .angle is accurate in main process) ---
 class Stepper:
     seq = [0b0001,0b0011,0b0010,0b0110,0b0100,0b1100,0b1000,0b1001]
-    delay = 500                         # microsecond delay used previously
+    delay = 500              
     steps_per_degree = 4*1024/360
 
     def __init__(self, shifter, lock, index):
@@ -85,7 +79,6 @@ class Stepper:
             for val in myArray:
                 final |= val
             self.s.shiftByte(final)
-        # update angle in same process (degrees)
         self.angle = (self.angle + direction/Stepper.steps_per_degree) % 360.0
         time.sleep(Stepper.delay / 1e6)
 
@@ -94,7 +87,6 @@ class Stepper:
         steps = int(abs(delta) * Stepper.steps_per_degree)
     
         for i in range(steps):
-            # crude acceleration ramp
             if i < 50:
                 delay = 1500 - i*20
             elif steps - i < 50:
@@ -105,7 +97,6 @@ class Stepper:
             self._step(direction)
             time.sleep(delay / 1e6)
 
-    # start a thread (not a process) so angle stays updated in parent
     def rotate(self, delta):
         t = threading.Thread(target=self._rotate, args=(delta,), daemon=True)
         t.start()
@@ -113,31 +104,23 @@ class Stepper:
         return t
 
     def goAngle(self, target):
-        # shortest-path delta
         delta = (target - self.angle + 540.0) % 360.0 - 180.0
-        # degrees of backlash compensation (tune: 1.5–3.0)
         BACKLASH_DEG = 2.0
-        # If we would approach from the negative direction,
-        # overshoot then approach positively
+
         if delta < 0:
-            # overshoot past target
             p1 = self.rotate(delta - BACKLASH_DEG)
             p1.join()
-            # final approach (positive direction)
             return self.rotate(BACKLASH_DEG)
-        # normal move (already approaching positive)
         return self.rotate(delta)
 
     def zero(self):
         self.angle = 0.0
 
-# --- Laser Function ---
 def test_laser():
     GPIO.output(laser, GPIO.HIGH)
     time.sleep(1)
     GPIO.output(laser, GPIO.LOW)
 
-# --- Calibration & Zero Functions ---
 def save_zero(m1, m2):
     """
     Save the *current absolute motor angles* as the physical zero.
@@ -146,7 +129,6 @@ def save_zero(m1, m2):
     zero_positions["m1"] = m1.angle
     zero_positions["m2"] = m2.angle
 
-    # Keep calibration offsets untouched; calibration is for aiming bias corrections
     print("Saved zero_positions (raw):", {"m1": m1.angle, "m2": m2.angle})
     print("Saved zero_positions (normalized):", {"m1": normalize_deg(m1.angle), "m2": normalize_deg(m2.angle)})
 
@@ -165,7 +147,6 @@ def return_to_zero(m1, m2):
     p1.join()
     p2.join()
 
-# --- Correct Aim at Team for Circumference with center-zero elevation compensation ---
 def aim_at_team(m1, m2, target_team):
     if self_team["id"] is None:
         print("ERROR: Self team number not set.")
@@ -179,56 +160,44 @@ def aim_at_team(m1, m2, target_team):
         print("ERROR: This turret's team number not in positions:", st)
         return
 
-    # read r and theta from JSON (assume units consistent e.g. cm)
     r_self  = float(positions["turrets"][st]["r"])
     th_self = float(positions["turrets"][st]["theta"])
     r_tgt   = float(positions["turrets"][target_team]["r"])
     th_tgt  = float(positions["turrets"][target_team]["theta"])
 
-    # Cartesian positions in same unit (cm)
     x_self = r_self * math.cos(th_self)
     y_self = r_self * math.sin(th_self)
     x_tgt  = r_tgt  * math.cos(th_tgt)
     y_tgt  = r_tgt  * math.sin(th_tgt)
 
-    # heights (cm)
     z_self = float(turret_height_self)
     z_tgt = float(positions["turrets"][target_team].get("z", turret_height_other))
 
-    # Apply globe offset only for globes
     if target_team.startswith("__globe__"):
         z_tgt += globe_z_offset
 
-
-    # vector from turret to target
     dx = x_tgt - x_self
     dy = y_tgt - y_self
     dz = z_tgt - z_self
 
-    horizontal_dist = math.hypot(dx, dy)  # ground-plane distance (cm)
+    horizontal_dist = math.hypot(dx, dy) 
 
-    # Absolute elevation (wrt horizontal plane) to the target
-    el_target_abs = math.atan2(dz, horizontal_dist)   # radians
+    el_target_abs = math.atan2(dz, horizontal_dist) 
 
-    # Absolute elevation to the center (this is your physical zero)
     dz_center = 0.0 - z_self
     dist_to_center = r_self
-    el_center_abs = math.atan2(dz_center, dist_to_center)  # radians
+    el_center_abs = math.atan2(dz_center, dist_to_center) 
 
-    # Elevation command = difference from center-zero (in degrees)
     el_rel_rad = el_target_abs - el_center_abs
     el_deg = el_rel_rad * 180.0 / math.pi
 
-    # Azimuth: absolute azimuth to target in world coords
     az_world = math.atan2(dy, dx)
-    turret_facing = th_self + math.pi   # turret zero points to center
+    turret_facing = th_self + math.pi
     az_rel = az_world - turret_facing
-    az_deg = -az_rel * 180.0 / math.pi  # NEGATE to match manual controls convention
+    az_deg = -az_rel * 180.0 / math.pi
 
-    # normalize azimuth to [-180, 180)
     az_deg = normalize_deg(az_deg)
 
-    # Apply calibration offsets saved for aiming bias (not zero positions)
     az_deg += calibration.get("az_offset", 0.0)
     el_deg += calibration.get("el_offset", 0.0)
 
@@ -238,24 +207,19 @@ def aim_at_team(m1, m2, target_team):
         f"el_target_abs={el_target_abs*180/math.pi:.4f}°, el_center_abs={el_center_abs*180/math.pi:.4f}°"
     )
 
-    # target absolute angles for motors:
-    # elevation motor target = zero_positions['m1'] + el_deg
-    # azimuth motor target = zero_positions['m2'] + az_deg
     tgt_el_abs = zero_positions.get("m1", 0.0) + el_deg
     tgt_az_abs = zero_positions.get("m2", 0.0) + az_deg
 
-    # Normalize targets into [0, 360) or keep raw; Stepper.goAngle handles shortest path
-    # but for readability we normalize for print
     print("Computed motor targets (raw):", {"el": tgt_el_abs, "az": tgt_az_abs})
     print("Computed motor targets (norm):", {"el": normalize_deg(tgt_el_abs), "az": normalize_deg(tgt_az_abs)})
 
-    # Rotate motors (elevation = m1, azimuth = m2)
     p1 = m1.goAngle(tgt_el_abs)
     p2 = m2.goAngle(tgt_az_abs)
     p1.join()
     p2.join()
 
 def aim_and_laser_sequence(m1, m2):
+    load_positions()
     stop_auto_event.clear()  # reset before starting
     if self_team["id"] is None:
         print("ERROR: Self team not set.")
@@ -263,7 +227,6 @@ def aim_and_laser_sequence(m1, m2):
 
     print("Starting full aim + laser sequence (sorted by theta)")
 
-    # ---- Turrets (sorted by theta) ----
     turret_items = [
         (tid, data)
         for tid, data in positions.get("turrets", {}).items()
@@ -285,9 +248,7 @@ def aim_and_laser_sequence(m1, m2):
 
         time.sleep(0.5)
 
-    # ---- Globes (sorted by theta) ----
     globes = positions.get("globes", [])
-    # normalize to list of (id, data)
     if isinstance(globes, dict):
         globe_items = list(globes.items())
     elif isinstance(globes, list):
@@ -312,7 +273,6 @@ def aim_and_laser_sequence(m1, m2):
 
     print("Sequence complete")
 
-# --- POST Parsing ---
 def parsePOSTdata(data):
     idx = data.find("\r\n\r\n")
     if idx == -1:
@@ -321,7 +281,6 @@ def parsePOSTdata(data):
     parsed = parse_qs(post, keep_blank_values=True)
     return {k:v[0] for k,v in parsed.items()}
 
-# --- Web Page with Manual Jog Buttons and current-angle display ---
 def web_page(m1_angle, m2_angle):
     def jog_buttons(name):
         buttons = [-45, -15, -5, -1, -0.5, -0.1, 0.1, 0.5, 1, 5, 15, 45]
@@ -375,7 +334,6 @@ def web_page(m1_angle, m2_angle):
     """
     return bytes(html, "utf-8")
 
-# --- Web Server ---
 def serve_web(m1, m2):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -394,22 +352,13 @@ def serve_web(m1, m2):
         if msg.startswith("POST"):
             data = parsePOSTdata(msg)
         
-            # -----------------------------
-            # 1. Set self team
-            # -----------------------------
             if "set_self_team" in data and data.get("self_team", "").strip() != "":
                 self_team["id"] = data["self_team"].strip()
                 print("This turret's team set to:", self_team["id"])
-        
-            # -----------------------------
-            # 2. Aim at another team
-            # -----------------------------
+
             if "aim_team" in data and data.get("team_box", "").strip() != "":
                 aim_at_team(m1, m2, data["team_box"].strip())
         
-            # -----------------------------
-            # 3. Jog buttons (rotate by delta)
-            # -----------------------------
             if "m1_jog" in data:
                 try:
                     delta = float(data["m1_jog"])
@@ -426,9 +375,6 @@ def serve_web(m1, m2):
                 except:
                     pass
         
-            # -----------------------------
-            # 4. Manual absolute control ONLY when clicking "Rotate Motors"
-            # -----------------------------
             if any(v == "Rotate Motors" for v in data.values()):
                 # elevation setpoint
                 if "m1" in data and data["m1"].strip() != "":
@@ -447,27 +393,19 @@ def serve_web(m1, m2):
                         p.join()
                     except:
                         pass
-        
-            # -----------------------------
-            # 5. Calibration
-            # -----------------------------
+
             if "return_zero" in data:
                 return_to_zero(m1, m2)
         
             if "save_zero" in data:
                 save_zero(m1, m2)
         
-            # -----------------------------
-            # 6. Laser test (NO motor movement)
-            # -----------------------------
             if "laser" in data:
                 test_laser()
 
             if "stop_auto" in data:
                 stop_auto_event.set()
-            # -----------------------------
-            # 7. Automatic aim + laser sequence
-            # -----------------------------
+
             if "auto_sequence" in data:
                 t = threading.Thread(
                     target=aim_and_laser_sequence,
@@ -481,10 +419,8 @@ def serve_web(m1, m2):
             conn.sendall(response)
         except Exception as e:
             print("Failed sending response:", e)
-
         conn.close()
 
-# --- Main ---
 if __name__ == "__main__":
     s = Shifter(23, 24, 25)
     lock1 = threading.Lock()
