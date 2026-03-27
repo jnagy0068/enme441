@@ -13,6 +13,13 @@ picam2.configure("preview")
 picam2.start()
 time.sleep(2)
 
+picam2.set_controls({
+    "AwbEnable": True
+})
+
+colorLower = (40, 70, 70)
+colorUpper = (80, 255, 255)
+
 # Set FPS
 fps = 20.0
 duration = 30  # seconds
